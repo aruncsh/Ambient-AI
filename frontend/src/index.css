@@ -1,0 +1,80 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --card: 240 10% 6%;
+  --card-foreground: 0 0% 98%;
+  --popover: 240 10% 3.9%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 245 58% 51%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 3.7% 15.9%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent: 240 3.7% 15.9%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 62.8% 30.6%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 15.9%;
+  --ring: 240 4.9% 83.9%;
+  --radius: 1rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-indigo-500/30;
+    font-family: 'Inter', sans-serif;
+  }
+  h1, h2, h3, h4 {
+    @apply font-semibold tracking-tight;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-zinc-900/40 backdrop-blur-3xl border border-zinc-800/50 rounded-[2rem] p-8 transition-all duration-500 hover:border-zinc-700/50 hover:bg-zinc-900/60 shadow-2xl;
+  }
+  
+  .btn {
+    @apply inline-flex items-center justify-center rounded-2xl px-8 py-3.5 text-sm font-semibold transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+  }
+  
+  .btn-primary {
+    @apply bg-indigo-600 text-white shadow-[0_10px_20px_-5px_rgba(79,70,229,0.3)] hover:bg-indigo-500 hover:shadow-[0_15px_30px_-5px_rgba(79,70,229,0.4)];
+  }
+  
+  .btn-secondary {
+    @apply bg-zinc-800/50 text-white border border-zinc-700/50 hover:bg-zinc-800 hover:border-zinc-600;
+  }
+  
+  .btn-danger {
+    @apply bg-rose-600 text-white hover:bg-rose-500 shadow-[0_10px_20px_-5px_rgba(225,29,72,0.3)];
+  }
+  
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold transition-colors uppercase tracking-widest;
+  }
+  
+  .badge-primary {
+    @apply bg-indigo-500/10 text-indigo-400 border border-indigo-500/20;
+  }
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

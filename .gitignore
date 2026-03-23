@@ -1,0 +1,30 @@
+# Root and Backend folders
+models/
+backend/models/
+node_modules/
+backend/node_modules/
+recordings/
+backend/recordings/
+frontend-backup/
+venv/
+backend/venv/
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.env
+*.log
+
+# Multimedia
+*.wav
+*.mp3
+*.mp4
+
+# OS/IDEs
+.vscode/
+.DS_Store
+dist/
+build/
+

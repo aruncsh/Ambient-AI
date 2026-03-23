@@ -1,0 +1,21 @@
+/* Studio Indigo Theme Overrides */
+:root {
+  --p-h: 245;
+  --p-s: 58%;
+  --p-l: 51%;
+  --primary: hsl(var(--p-h), var(--p-s), var(--p-l));
+  --primary-glow: hsla(var(--p-h), var(--p-s), var(--p-l), 0.2);
+  
+  --bg-dark: #09090b; /* Zinc 950 */
+  --bg-sidebar: #09090b;
+  --bg-card: rgba(24, 24, 27, 0.4); /* Zinc 900 */
+  
+  --text-main: #fafafa;
+  --text-muted: #71717a;
+}
+
+body {
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(245, 58%, 51%, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, hsla(270, 50%, 50%, 0.03) 0px, transparent 50%);
+}

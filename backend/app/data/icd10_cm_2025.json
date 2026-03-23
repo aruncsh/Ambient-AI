@@ -1,0 +1,20 @@
+[
+    {"code": "J00", "description": "Acute nasopharyngitis [common cold]"},
+    {"code": "J01.90", "description": "Acute sinusitis, unspecified"},
+    {"code": "J02.9", "description": "Acute pharyngitis, unspecified"},
+    {"code": "J06.9", "description": "Acute upper respiratory infection, unspecified"},
+    {"code": "J45.909", "description": "Unspecified asthma, uncomplicated"},
+    {"code": "I10", "description": "Essential (primary) hypertension"},
+    {"code": "E11.9", "description": "Type 2 diabetes mellitus without complications"},
+    {"code": "M54.50", "description": "Low back pain, unspecified"},
+    {"code": "R05.9", "description": "Cough, unspecified"},
+    {"code": "R50.9", "description": "Fever, unspecified"},
+    {"code": "R51.9", "description": "Headache, unspecified"},
+    {"code": "G43.909", "description": "Migraine, unspecified, not intractable, without status migrainosus"},
+    {"code": "K21.9", "description": "Gastro-esophageal reflux disease without esophagitis"},
+    {"code": "F41.1", "description": "Generalized anxiety disorder"},
+    {"code": "F32.9", "description": "Major depressive disorder, single episode, unspecified"},
+    {"code": "L23.9", "description": "Allergic contact dermatitis, unspecified cause"},
+    {"code": "T78.40XA", "description": "Allergy, unspecified, initial encounter"},
+    {"code": "B34.9", "description": "Viral infection, unspecified"}
+]
