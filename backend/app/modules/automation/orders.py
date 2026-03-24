@@ -55,4 +55,4 @@ class OrderAutomation:
             
         return orders
 
-automation_service = OrderAutomation()
+order_automation = OrderAutomation()

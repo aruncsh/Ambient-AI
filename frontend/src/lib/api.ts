@@ -44,6 +44,12 @@ export const api = {
     });
     return res.json();
   },
+  deleteAppointment: async (id: string) => {
+    const res = await fetch(`${API_BASE}/scheduling/${id}`, {
+      method: 'DELETE'
+    });
+    return res.json();
+  },
   getInvoices: async () => {
     const res = await fetch(`${API_BASE}/billing/`);
     return res.json();

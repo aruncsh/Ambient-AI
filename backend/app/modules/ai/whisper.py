@@ -106,7 +106,10 @@ class WhisperService:
                     result = " ".join(full_text).strip()
                     return result
 
-                text = await loop.run_in_executor(None, process_audio, model)
+                # Loop.run_in_executor returns a Future which, when awaited, returns the result of the function.
+                # Pyre sometimes loses track of the return type.
+                from typing import cast
+                text = cast(str, await loop.run_in_executor(None, process_audio, model))
                 
                 if tmp_path and os.path.exists(tmp_path):
                     os.unlink(tmp_path)
@@ -140,28 +143,46 @@ class WhisperService:
     async def transcribe_file(self, file_path: str) -> List[Dict]:
         """
         Transcribes a full audio file and returns segments.
+        Robustly handles missing or corrupted files.
         """
-        model = self._get_model()
-        loop = asyncio.get_event_loop()
-        
-        def process():
-            segments, info = model.transcribe(
-                file_path,
-                beam_size=5,
-                vad_filter=True,
-                initial_prompt="Medical Consultation. Translate everything to English.",
-                language="en"
-            )
-            results = []
-            for segment in segments:
-                results.append({
-                    "start": segment.start,
-                    "end": segment.end,
-                    "text": segment.text.strip(),
-                    "speaker": "Unknown" # To be filled by diarization
-                })
-            return results
+        try:
+            if not os.path.exists(file_path) or os.path.getsize(file_path) < 100:
+                logger.warning(f"Audio file {file_path} is too small or missing, skipping transcription.")
+                return []
+                
+            model = self._get_model()
+            if model is None:
+                return []
+                
+            loop = asyncio.get_event_loop()
             
-        return await loop.run_in_executor(None, process)
+            def process(m):
+                # Whisper模型的transcribe方法如果遇到极短或无效的音频可能会报错
+                try:
+                    segments, info = m.transcribe(
+                        file_path,
+                        beam_size=5,
+                        vad_filter=True,
+                        initial_prompt="Medical Consultation. Translate everything to English.",
+                        language="en"
+                    )
+                    results = []
+                    for segment in segments:
+                        results.append({
+                            "start": segment.start,
+                            "end": segment.end,
+                            "text": segment.text.strip(),
+                            "speaker": "Unknown" # To be filled by diarization
+                        })
+                    return results
+                except Exception as e:
+                    logger.error(f"Faster-Whisper model failure on file {file_path}: {e}")
+                    return []
+                
+            from typing import cast
+            return cast(List[Dict], await loop.run_in_executor(None, process, model))
+        except Exception as e:
+            logger.error(f"Whisper script error in transcribe_file: {e}")
+            return []
 
 whisper_service = WhisperService()

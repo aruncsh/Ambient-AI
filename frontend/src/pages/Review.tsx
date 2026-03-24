@@ -23,7 +23,7 @@ const Review: React.FC = () => {
     const [automation, setAutomation] = useState({
         lab_orders: [] as string[],
         prescriptions: [] as any[],
-        billing_codes: [] as string[],
+        billing_codes: [] as any[],
         invoice_id: "",
         fhir_id: "",
         fhir_status: "pending"
@@ -103,7 +103,14 @@ const Review: React.FC = () => {
     const formatSoapValue = (val: any): string => {
         if (!val) return "";
         if (typeof val === 'string') return val;
-        if (Array.isArray(val)) return val.join("\n");
+        if (Array.isArray(val)) {
+            return val.map(item => {
+                if (typeof item === 'object' && item !== null) {
+                    return item.code || item.name || JSON.stringify(item);
+                }
+                return String(item);
+            }).join("\n");
+        }
         if (typeof val === 'object') {
             return Object.entries(val)
                 .map(([k, v]) => {
@@ -117,6 +124,31 @@ const Review: React.FC = () => {
                 .join("\n\n");
         }
         return String(val);
+    };
+
+    const saveRefinement = async () => {
+        setLoading(true);
+        try {
+            const resp = await fetch(`/api/summary/${id}/update`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(soap)
+            });
+            const result = await resp.json();
+            if (result.status === 'success') {
+                // Update local automation state if billing codes changed
+                if (result.billing_codes) {
+                    setAutomation(prev => ({ ...prev, billing_codes: result.billing_codes }));
+                }
+                alert("Encounter signed and synchronized with EHR.");
+                navigate('/history');
+            }
+        } catch (err) {
+            console.error("Failed to save refinement:", err);
+            alert("Error saving refinements. Please try again.");
+        } finally {
+            setLoading(false);
+        }
     };
 
     const refineWithAI = (section: string) => {
@@ -141,7 +173,7 @@ const Review: React.FC = () => {
                     <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-500 uppercase tracking-[0.2em]">
                          <FileCheck size={14} /> Review Required
                     </div>
-                    <h1 className="text-5xl font-bold tracking-tight text-white">Clinical Note Review</h1>
+                    <h1 className="text-5xl font-bold tracking-tight text-white">Clinical Notes Review</h1>
                     <div className="flex items-center gap-4 text-zinc-500 text-sm font-medium">
                         <span className="bg-white/5 px-2 py-0.5 rounded text-[10px] uppercase font-bold text-zinc-400">
                             {id || 'PENDING'}
@@ -268,7 +300,15 @@ const Review: React.FC = () => {
                                 <div className="space-y-2">
                                     <div className="text-[10px] uppercase font-bold text-zinc-500">Codes & Billing</div>
                                     <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-xs text-emerald-400 flex flex-wrap gap-2">
-                                        {automation.billing_codes.map(c => <span key={c} className="bg-emerald-500/10 px-1.5 py-0.5 rounded font-mono">{c}</span>)}
+                                        {automation.billing_codes.map((c: any, i: number) => (
+                                            <span 
+                                                key={typeof c === 'object' ? (String(c.code || i) + i) : c} 
+                                                className="bg-emerald-500/10 px-1.5 py-0.5 rounded font-mono cursor-help"
+                                                title={typeof c === 'object' ? `${c.system || ''}: ${c.description || ''}${c.reasoning ? ` (${c.reasoning})` : ''}` : String(c)}
+                                            >
+                                                {typeof c === 'object' ? (typeof c.code === 'object' ? (c.code.code || JSON.stringify(c.code)) : String(c.code)) : String(c)}
+                                            </span>
+                                        ))}
                                         {automation.invoice_id && <div className="w-full text-[9px] text-emerald-600 mt-1 uppercase font-bold">ID: {automation.invoice_id}</div>}
                                     </div>
                                 </div>
@@ -308,10 +348,25 @@ const Review: React.FC = () => {
                             Purging of raw media will commence upon sign-off.
                         </p>
                         <button 
-                            onClick={() => { setLoading(true); setTimeout(() => setLoading(false), 1500); }}
-                            className="btn btn-primary w-full h-16 py-0 text-lg rounded-2xl"
+                            onClick={saveRefinement}
+                            disabled={loading}
+                            className="btn btn-primary w-full h-16 py-0 text-lg rounded-2xl flex items-center justify-center gap-3"
                         >
-                            {loading ? "Authenticating..." : "Sign encounter"}
+                            {loading ? (
+                                <>
+                                    <motion.div 
+                                        animate={{ rotate: 360 }}
+                                        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                                        className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
+                                    />
+                                    Authenticating...
+                                </>
+                            ) : (
+                                <>
+                                    <FileCheck size={20} />
+                                    Sign encounter
+                                </>
+                            )}
                         </button>
 
                         {/* Re-record button */}

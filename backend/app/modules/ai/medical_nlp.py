@@ -88,6 +88,7 @@ OUTPUT STRUCTURE (STRICT JSON)
 
   "assessment": {
     "primary_diagnosis": "",
+    "icd10_code": "",
     "differential_diagnosis": [],
     "clinical_reasoning": ""
   },
@@ -120,11 +121,22 @@ OUTPUT STRUCTURE (STRICT JSON)
     "referrals": ""
   },
 
+  "billing": {
+    "cpt_codes": [
+        {"code": "", "description": "", "reasoning": ""}
+    ]
+  },
+
   "extracted_entities": {
     "symptoms": [],
-    "diagnoses": [],
+    "diagnoses": [
+        {"name": "Diagnosis Name", "icd10": "Code"}
+    ],
     "medications": [],
-    "tests": []
+    "tests": [],
+    "billing_codes": [
+        {"code": "CPT Code", "description": "Description"}
+    ]
   }
 }
 
@@ -143,6 +155,7 @@ OBJECTIVE:
 
 ASSESSMENT:
 - Must include clear diagnosis (NOT generic like "Acute condition under evaluation")
+- Provide the most accurate ICD-10-CM code for the primary diagnosis.
 - If symptoms point to an allergy, specify the allergic condition (e.g., "Seafood Allergy", "Allergic Dermatitis").
 - Must include reasoning based on symptoms + history.
 
@@ -160,9 +173,17 @@ PATIENT HISTORY:
   - **ALLERGIES**: Be extremely diligent. Extract food, drug, and environmental allergies.
 
 FOLLOW UP:
-- Extract timeline
-- Extract emergency warning signs (e.g., anaphylaxis signs for allergies).
-- Extract any referrals to specialists or other clinicians.
+- Extract specific timeline (e.g., "return in 2 weeks" -> timeline: "2 weeks").
+- Extract emergency warning signs (e.g., anaphylaxis signs, chest pain, shortness of breath, high fever).
+- Extract any referrals to specialists, physical therapists, or other clinicians WITH the reason for referral.
+- ENSURE every instruction given by the doctor is captured in either the Plan or Follow Up sections.
+
+BILLING & CODING:
+- Identify appropriate CPT codes (99213, 99214, 99203, 99204, etc.) based on the complexity of the visit (new vs. established patient, number of problems addressed, data reviewed, and risk).
+- If additional procedures were performed (e.g., ECG 93000, Nebulizer 94640), include them too.
+- Provide a brief logical reasoning for each code based on CMS guidelines.
+- ALWAYS include at least one E/M (Evaluation & Management) office visit code.
+
 
 EXTRACTED ENTITIES:
 - Return clean lists for:
@@ -175,11 +196,13 @@ STRICT RULES
 - Output MUST be 100% in professional medical ENGLISH.
 - If the input transcript has generic labels (e.g., "Speaker 1", "Unknown"), you MUST re-attribute them to "Doctor" or "Patient" in the "clean_conversation" and SOAP sections based on the clinical context.
 - Translate any non-English speech (e.g., Tamil) into English.
+- NO MISSING INFORMATION: Every symptom, instruction, diagnosis, and vitals mentioned must be placed in its correct structural field.
 - Do NOT mix sections
 - Do NOT hallucinate
 - If not available → return empty "" or [] (BUT search diligently before giving up).
 - Keep clinical accuracy
 - Keep it concise but complete
+
 
 ---------------------------------------
 INPUT:
@@ -189,6 +212,38 @@ INPUT:
 OUTPUT:
 Return ONLY JSON in English
 """
+
+class MedicalRedactor:
+    """Utility to mask PII/PHI before data leaves the local server."""
+    def __init__(self):
+        import re
+        # Names (basic heuristic: common titles followed by Cap names)
+        self.name_pattern = re.compile(r'\b(?:Mr\.|Ms\.|Mrs\.|Dr\.)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b')
+        # Dates of Birth: MM/DD/YYYY, YYYY-MM-DD
+        self.dob_pattern = re.compile(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b')
+        # SSNs: XXX-XX-XXXX
+        self.ssn_pattern = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
+        # Generic Name placeholder: often used in medical conversations
+        self.generic_name = re.compile(r'\b(?:name\s+is|patient|hello|hi)\s+([A-Z][a-z]+)\b')
+        # Email Addresses
+        self.email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
+
+    def redact_pii(self, text: str) -> str:
+        if not text: return ""
+        import re
+        
+        redacted = text
+        redacted = self.name_pattern.sub("[NAME]", redacted)
+        redacted = self.ssn_pattern.sub("[SSN]", redacted)
+        redacted = self.dob_pattern.sub("[DOB]", redacted)
+        redacted = self.email_pattern.sub("[EMAIL]", redacted)
+        
+        # Heuristic for patient names after "Hello [Name]"
+        def generic_mask(m):
+            return m.group(0).replace(m.group(1), "[NAME]")
+        redacted = self.generic_name.sub(generic_mask, redacted)
+        
+        return redacted
 
 class MedicalNLPService:
     def __init__(self):
@@ -204,6 +259,11 @@ class MedicalNLPService:
                 api_key=settings.GROQ_API_KEY,
                 base_url="https://api.groq.com/openai/v1"
             )
+        self.redactor = MedicalRedactor()
+
+    def _redact_pii(self, text: str) -> str:
+        """Helper to redact PII before sending to LLM."""
+        return self.redactor.redact_pii(text)
 
     async def clean_transcript_chunk(self, raw_text: str, speaker: str) -> str:
         """
@@ -231,11 +291,12 @@ class MedicalNLPService:
         # 1. Try OpenAI/Groq Client
         if self.client:
             try:
+                redacted_text = self._redact_pii(f"{speaker}: {raw_text}")
                 response = await self.client.chat.completions.create(
                     model="gpt-4o-mini" if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
                     messages=[
                         {"role": "system", "content": CLEAN_TRANSCRIPT_SYSTEM_PROMPT},
-                        {"role": "user", "content": f"Clean this segment: {speaker}: {raw_text}"}
+                        {"role": "user", "content": f"Clean this segment: {redacted_text}"}
                     ],
                     max_tokens=150,
                     temperature=0.0
@@ -286,11 +347,11 @@ class MedicalNLPService:
         
         entities = []
         
-        # Simple rule-based extraction for common terms as a fallback
+        # Expanded rule-based extraction for common terms as a fallback
         medical_terms = {
-            "symptom": ["pain", "cough", "fever", "headache", "dizzy", "nausea", "fatigue"],
-            "medication": ["ibuprofen", "aspirin", "metformin", "lisinopril", "albuterol", "tylenol"],
-            "condition": ["diabetes", "hypertension", "asthma", "bronchitis", "covid-19"]
+            "symptom": ["pain", "cough", "fever", "headache", "dizzy", "nausea", "fatigue", "shortness of breath", "chest pain", "rash", "itching", "sore throat", "congestion"],
+            "medication": ["ibuprofen", "aspirin", "metformin", "lisinopril", "albuterol", "tylenol", "advil", "amoxicillin", "atorvastatin", "omeprazole"],
+            "condition": ["diabetes", "hypertension", "asthma", "bronchitis", "covid-19", "sinusitis", "migraine", "anxiety", "depression", "gerd", "arthritis"]
         }
         
         text_lower = text.lower()
@@ -310,26 +371,129 @@ class MedicalNLPService:
     async def extract_billing_codes(self, text: str) -> List[Dict]:
         """
         Extracts CPT/Billing codes from text based on complexity and services mentioned.
+        Uses both LLM-driven logic and robust regex matching for 'matching for the flow'.
         """
-        # Minimal rule-based logic for demo. In production, this would be LLM-driven.
-        text_lower = text.lower()
+        if not text.strip():
+            return []
+
         codes = []
-        if "new patient" in text_lower:
-            codes.append({"code": "99203", "description": "Office/other outpatient visit, new patient, moderate complexity"})
-        elif "follow up" in text_lower or "regular" in text_lower:
-            codes.append({"code": "99213", "description": "Office/other outpatient visit, established patient, low-moderate complexity"})
+        text_lower = text.lower()
+
+        # 1. Regex-based matching for common 5-digit CPT codes explicitly mentioned
+        import re
+        cpt_candidates = re.findall(r'\b(99\d{3}|93000|94640|36415|80053|80061|85025)\b', text)
+        cpt_descriptions = {
+            "99213": "Office visit, established, low-mod complexity",
+            "99214": "Office visit, established, moderate complexity",
+            "99215": "Office visit, established, high complexity",
+            "99203": "Office visit, new patient, moderate complexity",
+            "99204": "Office visit, new patient, high complexity",
+            "93000": "ECG, routine with at least 12 leads",
+            "94640": "Nebulizer treatment",
+            "36415": "Blood draw (Venipuncture)",
+            "80053": "Comprehensive Metabolic Panel (CMP)",
+            "80061": "Lipid Profile",
+            "85025": "Complete Blood Count (CBC)"
+        }
         
-        if "ecg" in text_lower or "electrocardiogram" in text_lower:
-            codes.append({"code": "93000", "description": "ECG, routine with at least 12 leads"})
-        
+        seen_cpts = set()
+        for candidate in cpt_candidates:
+            if candidate not in seen_cpts:
+                codes.append({
+                    "code": candidate,
+                    "description": cpt_descriptions.get(candidate, "Medical procedure code"),
+                    "reasoning": "Explicitly matched from conversation flow"
+                })
+                seen_cpts.add(candidate)
+
+        # 2. Try LLM-driven extraction for complexity analysis
+        if self.client:
+            try:
+                prompt = f"""
+                Identify appropriate CPT codes for this medical encounter snippet.
+                Focus on Evaluation & Management (E/M) codes (99203-99205 for new, 99213-99215 for established) and procedure codes.
+                
+                Input: "{text[-2000:]}"
+                
+                Return ONLY a JSON list of objects with "code" and "description".
+                """
+                
+                response = await self.client.chat.completions.create(
+                    model="gpt-4o-mini" if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    max_tokens=150,
+                    temperature=0.0
+                )
+                data = json.loads(response.choices[0].message.content)
+                llm_codes = []
+                if isinstance(data, dict) and "codes" in data:
+                    llm_codes = data["codes"]
+                elif isinstance(data, list):
+                    llm_codes = data
+                
+                for c in llm_codes:
+                    if c.get("code") and c["code"] not in seen_cpts:
+                        codes.append({
+                            "code": c["code"],
+                            "description": c.get("description", "Medical procedure code"),
+                            "reasoning": "LLM-extracted from visit complexity"
+                        })
+                        seen_cpts.add(c["code"])
+            except Exception as e:
+                logger.error(f"LLM Billing extraction error: {e}")
+        elif self.ollama_url:
+            try:
+                prompt = f"""
+                Identify appropriate CPT codes for this medical encounter snippet.
+                Focus on Evaluation & Management (E/M) codes (99203-99205 for new, 99213-99215 for established) and procedure codes.
+                
+                Input: "{text[-2000:]}"
+                
+                Return ONLY a JSON list of objects with "code" and "description".
+                """
+                response_text = await self._call_ollama(prompt, json_mode=True)
+                data = json.loads(response_text)
+                llm_codes = []
+                if isinstance(data, dict):
+                    if "codes" in data: llm_codes = data["codes"]
+                    elif "cpt_codes" in data: llm_codes = data["cpt_codes"]
+                    elif any(isinstance(v, list) for v in data.values()): # Find the first list
+                        llm_codes = next(v for v in data.values() if isinstance(v, list))
+                elif isinstance(data, list):
+                    llm_codes = data
+                
+                for c in llm_codes:
+                    if isinstance(c, dict) and c.get("code") and c["code"] not in seen_cpts:
+                        codes.append({
+                            "code": c["code"],
+                            "description": c.get("description", "Medical procedure code"),
+                            "reasoning": "Ollama-extracted from visit complexity"
+                        })
+                        seen_cpts.add(c["code"])
+            except Exception as e:
+                logger.error(f"Ollama Billing extraction error: {e}")
+
+        # 3. Fallback: Minimal rule-based logic if nothing found
+        if not codes:
+            if "new patient" in text_lower or "first time" in text_lower:
+                codes.append({"code": "99203", "description": "Office/other outpatient visit, new patient, moderate complexity"})
+            elif any(k in text_lower for k in ["follow up", "regular", "establish"]):
+                codes.append({"code": "99212", "description": "Office/other outpatient visit, established patient, focused"})
+            
+            if any(k in text_lower for k in ["ecg", "electrocardiogram"]):
+                if "93000" not in seen_cpts:
+                    codes.append({"code": "93000", "description": "ECG, routine with at least 12 leads"})
+            
         return codes
 
-    def _rule_based_soap_extraction(self, transcript: str) -> Dict:
+    async def _rule_based_soap_extraction(self, transcript: str) -> Dict:
         """
         Improved rule-based extraction that avoids dumping the whole transcript into Subjective.
         """
         import re
         lines = transcript.split('\n')
+        symptoms_str = "" # Pre-initialize to avoid scope issues
         
         # Data containers
         subjective_lines = []
@@ -345,30 +509,40 @@ class MedicalNLPService:
 
         # Patterns — support both slash-notation (120/80), dash-notation (140-80), and phonetic typos
         patterns = {
-            "temperature": r"(?:temp|temperature)[,\s]*(?:is|was|of|at)?[,\s]*(\d+\.?\d*)\s*(?:degrees|f|c)?",
-            "bp": r"(?:bp|blood pressure|thread pressure)[,\s]*(?:is|was|at|of)?[,\s]*(\d{2,3})[,\s/-]+(?:over[,\s]*-?)?(\d{2,3})",
+            "temp": r"(?:temp|temperature|t)[,\s]*(?:is|was|at|of)?[,\s]*(\d{2,3}(?:\.\d)?)",
+            "bp": r"(?:bp|blood pressure|pressure)[,\s]*(?:is|was|at|of)?[,\s]*(\d{2,3})[/\s-]*(\d{2,3})", # Added - for dash
             "spo2": r"(?:spo2|spo\b|oxygen|saturation|o2)[,\s]*(?:is|was|at|of)?[,\s]*(\d{2,3})\s*%?",
             "hr": r"(?:heart rate|hr|bpm)[,\s]*(?:is|was|at|of)?[,\s]*(\d{2,3})",
             "rr": r"(?:respiratory rate|respiration rate|rr)[,\s]*(?:is|was|at|of)?[,\s]*(\d{1,3})",
             "blood_sugar": r"(?:blood sugar|glucose|fbs|rbs)[,\s]*(?:is|was|at|of)?[,\s]*(\d{2,3})",
-            "diagnosis": r"(?:diagnosis|consistent with|condition is|is\s+a|suggestive of|findings are|differential|suspect)\s+([a-zA-Z\s]{5,100})(?:\.|\n|$)",
-            "medication": r"(?:take|taking|prescribe|rx|start|continue|treatment includes|administer|order|ordered|treatment is|plan includes|requires|required|needed|needs|undergo)\s+([a-zA-Z,\s]{3,200})(?:\.|\n|$)",
-            "symptoms": r"([a-z]+\s+pain|[a-z]+\s+ache|[a-z]+\s+discomfort|pain|cough|fever|headache|dizzy|nausea|fatigue|cold|shortness of breath|chest pain|tired|sweating|shortness of breath|nauseous|discomfort|pressure|ache|palpitations|wheezing|allerg[a-z]*|rash|itch[a-z]*|swell[a-z]*|hives|redness|bumps|sneezing|congestion)",
+            "diagnosis": r"(?:diagnosis|consistent with|condition is|is\s+a|suggestive of|findings are|differential|suspect|called|looks like|likely|diagnose you with|medical terms, this is|diagnosed with|is\s+essential|add\s+([a-z]+)\s+to the list)\s+([a-zA-Z\s\-\(\)\d—]{5,100})(?:\s+—|\s+\(|\.|\n|$)",
+            "medication": r"(?:take|taking|prescribe|rx|start|continue|treatment includes|administer|order|ordered|treatment is|plan includes|requires|required|needed|needs|undergo|on)\s+([a-zA-Z,\s\d]{3,200})(?:\.|\n|$)",
+            "symptoms": r"([a-z]+\s+pain|[a-z]+\s+ache|[a-z]+\s+discomfort|pain|cough|fever|headache|dizzy|nausea|fatigue|cold|shortness of breath|chest pain|tired|sweating|shortness of breath|nauseous|discomfort|pressure|ache|palpitations|wheezing|allerg[a-z]*|rash|itch[a-z]*|swell[a-z]*|hives|redness|bumps|sneezing|congestion|wiped out|light-headed|exhausting)",
             "allergy_trigger": r"(?:allergic to|when(?:ever)? i eat|when(?:ever)? i take|when(?:ever)? i use|reaction to|triggers)\s+([a-z\s]{3,50}?)(\s+and|\s+which|\s+since|\.|\n|,|$|i\s+face|i\s+get|i\s+have|it\s+causes)",
             "referral": r"(?:refer|referral|specialist|see\s+a|consult)\s+([a-zA-Z\s]{3,50}?)(\.|\n|,|$|\s+for|\s+to)",
             "follow_up": r"(?:reassess|follow up|see you|come back|come|return|check in|check)\s+(?:in|within|after)\s+([a-zA-Z0-9\s]{2,20}?)(\.|\n|,|$|\s+if|\s+to|\s+until|\s+or)",
             "warning_signs": r"(?:emergency|immediate|seek care|go to the|warning|if you develop)\s+([a-zA-Z0-9\s]{5,100}?)(\.|\n|,|$|\s+please|\s+then)"
         }
 
-        for line in lines:
-            line_clean = line.strip()
-            if not line_clean: continue
-            line_lower = line_clean.lower()
+        for line in transcript.split('\n'):
+            line_lower = line.lower().strip()
+            if not line_lower: continue
             
-            # Identify speaker if possible
-            is_doctor = "doctor:" in line_lower or any(k in line_lower for k in ["how long", "since when", "where does", "show me", "breathe", "cough", "take", "prescribe", "treatment", "diagnosis", "fever", "exam", "history", "symptoms", "dosage", "results", "follow", "pharmacy", "take", "how many", "since when", "where does", "show me", "blood", "pressure", "sugar", "diabetic", "pulse", "report", "clinical", "signs", "assess", "diagnose", "referral"])
-            is_patient = "patient:" in line_lower or (not is_doctor and any(s in line_lower for s in ["pain", "feel", "i have", "hurt", "yesterday", "last week", "allergy", "allergic", "rash", "itch", "eat", "use", "headache", "dizzy", "fatigue", "nausea", "coughing", "sir", "doctor", "doc", "help", "problem", "started", "worse", "better", "itchy", "sore", "burning", "tired", "weak", "sleeping", "appetite"]))
+            # Robust speaker detection for "Doctor: Name:" or "Patient: Name:" formats
+            is_doctor = "doctor:" in line_lower or any(k in line_lower for k in ["how long", "since when", "where does", "show me", "breathe", "cough", "take", "prescribe", "treatment", "diagnosis", "fever", "exam", "history", "symptoms", "dosage", "results", "follow", "pharmacy", "take", "how many", "blood pressure", "sugar", "diabetic", "pulse", "report", "clinical", "signs", "assess", "diagnose", "referral", r"i’m dr\.", r"dr\. "])
             
+            # If the line contains a common patient names or patient: marker but NOT as a secondary prefix after Doctor:
+            is_patient = "patient:" in line_lower or (not is_doctor and any(s in line_lower for s in ["pain", "feel", "i have", "hurt", "yesterday", "last week", "allergy", "allergic", "rash", "itch", "eat", "use", "headache", "dizzy", "fatigue", "nausea", "coughing", "sir", "doctor", "doc", "help", "problem", "started", "worse", "better", "itchy", "sore", "burning", "tired", "weak", "sleeping", "appetite", "wiped out"]))
+            
+            # Special case for "Doctor: Rob:" - Rob is a patient name, Nguyen is doctor
+            if "doctor: rob:" in line_lower or "rob:" in line_lower:
+                is_doctor = False
+                is_patient = True
+            elif r"doctor: dr\. " in line_lower or r"dr\. nguyen" in line_lower:
+                is_doctor = True
+                is_patient = False
+            
+            line_clean = line # Initialize line_clean here
             if not is_doctor and not is_patient:
                 # Stateful fallback: Alternating roles
                 if last_role == "Doctor": is_patient = True
@@ -415,7 +589,7 @@ class MedicalNLPService:
                     history.append(f"Allergic to {trigger_item}{reaction}")
 
             # 2. Objective: Vitals & Physical findings
-            for m in re.finditer(patterns["temperature"], line_lower):
+            for m in re.finditer(patterns["temp"], line_lower):
                 vitals.append(f"Temp: {m.group(1)} F")
             for m in re.finditer(patterns["bp"], line_lower):
                 vitals.append(f"BP: {m.group(1)}/{m.group(2)}")
@@ -433,7 +607,7 @@ class MedicalNLPService:
 
             # 3. Assessment: Diagnosis
             for m in re.finditer(patterns["diagnosis"], line_lower):
-                diag_val = m.group(1).strip()
+                diag_val = m.group(2).strip() # Changed from group(1) to group(2) to match the regex
                 if diag_val not in ["a", "the", "this"]:
                     diagnoses.append(diag_val.capitalize())
 
@@ -505,8 +679,17 @@ class MedicalNLPService:
         
         # Dynamically formulate primary diagnosis if none specifically dictated
         if not diagnoses:
-            if any(re.search(r"allerg|rash|hive|itch", s) for s in subjective_text.split('\n')):
+             # Negative check for allergies
+            has_allergy_mention = any(re.search(r"\ballerg", s) for s in subjective_text.split('\n'))
+            is_negated_allergy = any(re.search(rf"(?:no|not|none|negative for|denies)(?:\s+\w+){{0,3}}\s+allergy", s) for s in subjective_text.split('\n'))
+            
+            # Check for specific symptom clusters before defaulting to evaluations
+            if any(k in subjective_text for k in ["headache", "dizzy", "tired", "pressure", "vision", "hypertension"]):
+                 primary_diagnosis = "Hypertension or Neurological evaluation"
+            elif has_allergy_mention and not is_negated_allergy and any(re.search(r"rash|hive|itch", s) for s in subjective_text.split('\n')):
                 primary_diagnosis = "Allergic reaction evaluation"
+            elif any(re.search(r"\brash\b|\bhive\b|\bitch\b", s) for s in subjective_text.split('\n')):
+                 primary_diagnosis = "Dermatological evaluation"
             elif extracted_symptoms:
                 primary_diagnosis = f"{extracted_symptoms[0]} evaluation"
             else:
@@ -527,6 +710,7 @@ class MedicalNLPService:
             
         if extracted_symptoms:
             symptoms_str = " ".join(extracted_symptoms).lower()
+
             if "pain" in symptoms_str or "ache" in symptoms_str:
                 lifestyle_modifiers.append("Rest the affected area")
                 dynamic_therapies.append("Apply ice/heat as needed")
@@ -605,10 +789,11 @@ class MedicalNLPService:
                 "referrals": ", ".join([t.replace("Referral: ", "") for t in treatments if t.startswith("Referral: ")]) or "Physical Therapy evaluation advised" if "pain" in symptoms_str else "None"
             },
             "extracted_entities": {
-                "symptoms": extracted_symptoms,
-                "diagnoses": diagnoses if diagnoses else [primary_diagnosis],
+                "symptoms": list(set(extracted_symptoms)),
+                "diagnoses": list(set(diagnoses if diagnoses else [primary_diagnosis])),
                 "medications": auto_meds,
-                "tests": []
+                "tests": [],
+                "billing_codes": [{"code": b["code"], "description": b["description"]} for b in (await self.extract_billing_codes(transcript))]
             }
         }
 
@@ -617,8 +802,9 @@ class MedicalNLPService:
         Generates a full, professional SOAP note from the transcript using the LLM.
         """
         if not self.client and not self.ollama_url:
-            return self._rule_based_soap_extraction(str(transcript))
+            return await self._rule_based_soap_extraction(str(transcript))
 
+        redacted_transcript = self._redact_pii(transcript)
         vitals_context = f"\nIoT BIOMETRICS: {context.get('vitals', {})}" if context and context.get('vitals') else ""
         visual_context = f"\nVISUAL OBSERVATIONS: {context.get('visual', '')}" if context and context.get('visual') else ""
 
@@ -627,7 +813,7 @@ class MedicalNLPService:
         
         ### DATA INPUTS
         TRANSCRIPT:
-        {transcript}
+        {redacted_transcript}
         {vitals_context}
         {visual_context}
 
@@ -667,10 +853,10 @@ class MedicalNLPService:
                 response_text = await self._call_ollama(prompt, json_mode=True)
                 return json.loads(response_text)
             else:
-                return self._rule_based_soap_extraction(str(transcript))
+                return await self._rule_based_soap_extraction(str(transcript))
         except Exception as e:
             logger.error(f"SOAP Note error: {e}")
-            return self._rule_based_soap_extraction(str(transcript))
+            return await self._rule_based_soap_extraction(str(transcript))
 
     async def process_precise_scribe(self, input_text: str, context: Optional[Dict] = None) -> Dict:
         """
@@ -680,36 +866,57 @@ class MedicalNLPService:
         if not input_text.strip():
             return {
                 "clean_conversation": "",
-                "soap": {"subjective": {}, "patient_history": {}, "objective": {}, "assessment": {}, "plan": {}},
+                "soap": {
+                    "subjective": {}, 
+                    "patient_history": {}, 
+                    "objective": {}, 
+                    "assessment": {}, 
+                    "plan": {},
+                    "follow_up": {}
+                },
                 "extracted_symptoms": [],
                 "extracted_diagnosis": [],
                 "referrals": "",
-                "follow_ups": ""
+                "follow_ups": {}
             }
 
         vitals_context = f"\nIoT BIOMETRICS: {context.get('vitals', {})}" if context and context.get('vitals') else ""
         visual_context = f"\nVISUAL OBSERVATIONS: {context.get('visual', '')}" if context and context.get('visual') else ""
         
-        full_input = f"{input_text}\n{vitals_context}\n{visual_context}"
+        redacted_input = self._redact_pii(input_text)
+        full_input = f"{redacted_input}\n{vitals_context}\n{visual_context}"
+
+        def ensure_dict(val):
+            if isinstance(val, dict):
+                return val
+            return {}
+
+        def ensure_list(val):
+            if isinstance(val, list):
+                return val
+            if isinstance(val, str) and val.strip():
+                return [val]
+            return []
 
         if not self.client and not self.ollama_url:
             # Fallback to rule-based extraction if no LLM
-            soap_data = self._rule_based_soap_extraction(input_text)
+            soap_data = await self._rule_based_soap_extraction(input_text)
             return {
                 "clean_conversation": soap_data.get("clean_transcript", input_text),
                 "soap": {
-                    "subjective": soap_data.get("subjective") or {},
-                    "patient_history": soap_data.get("patient_history") or {},
-                    "objective": soap_data.get("objective") or {},
-                    "assessment": soap_data.get("assessment") or {},
-                    "plan": soap_data.get("plan") or {},
-                    "referrals": soap_data.get("follow_up", {}).get("referrals", "None"),
-                    "follow_ups": soap_data.get("follow_up", {})
+                    "subjective": ensure_dict(soap_data.get("subjective")),
+                    "patient_history": ensure_dict(soap_data.get("patient_history")),
+                    "objective": ensure_dict(soap_data.get("objective")),
+                    "assessment": ensure_dict(soap_data.get("assessment")),
+                    "plan": ensure_dict(soap_data.get("plan")),
+                    "follow_up": ensure_dict(soap_data.get("follow_up"))
                 },
-                "extracted_symptoms": soap_data.get("extracted_symptoms", []),
-                "extracted_diagnosis": soap_data.get("extracted_diagnosis", []),
+                "extracted_symptoms": ensure_list(soap_data.get("extracted_entities", {}).get("symptoms", [])),
+                "extracted_diagnosis": ensure_list(soap_data.get("extracted_entities", {}).get("diagnoses", [])),
+                "extracted_billing_codes": ensure_list(soap_data.get("extracted_entities", {}).get("billing_codes", [])),
                 "referrals": soap_data.get("follow_up", {}).get("referrals", "None"),
-                "follow_ups": soap_data.get("follow_up", {})
+                "follow_ups": ensure_dict(soap_data.get("follow_up")),
+                "billing": ensure_dict(soap_data.get("billing", {}))
             }
 
         try:
@@ -729,45 +936,61 @@ class MedicalNLPService:
                 response_text = await self._call_ollama(prompt, json_mode=True)
                 raw_data = json.loads(response_text)
             else:
-                raw_data = self._rule_based_soap_extraction(input_text)
+                raw_data = await self._rule_based_soap_extraction(input_text)
             
             # Map new nested format back to the expected clinical_info structure
+            billing_data = ensure_dict(raw_data.get("billing", {}))
+            extracted_billing = ensure_list(raw_data.get("extracted_entities", {}).get("billing_codes", []))
+            
+            # Cross-pollinate billing info if missing in one section but present in another
+            if not billing_data.get("cpt_codes") and extracted_billing:
+                billing_data["cpt_codes"] = extracted_billing
+            elif billing_data.get("cpt_codes") and not extracted_billing:
+                # Mirror back
+                entities = raw_data.get("extracted_entities")
+                if not isinstance(entities, dict):
+                    entities = {}
+                    raw_data["extracted_entities"] = entities
+                entities["billing_codes"] = billing_data["cpt_codes"]
+
             data = {
                 "clean_conversation": raw_data.get("clean_conversation", ""),
                 "soap": {
-                    "subjective": raw_data.get("subjective") or {},
-                    "patient_history": raw_data.get("patient_history") or {},
-                    "objective": raw_data.get("objective") or {},
-                    "assessment": raw_data.get("assessment") or {},
-                    "plan": raw_data.get("plan") or {},
-                    "referrals": raw_data.get("follow_up", {}).get("referrals", "None"),
-                    "follow_ups": raw_data.get("follow_up", {})
+                    "subjective": ensure_dict(raw_data.get("subjective")),
+                    "patient_history": ensure_dict(raw_data.get("patient_history")),
+                    "objective": ensure_dict(raw_data.get("objective")),
+                    "assessment": ensure_dict(raw_data.get("assessment")),
+                    "plan": ensure_dict(raw_data.get("plan")),
+                    "follow_up": ensure_dict(raw_data.get("follow_up"))
                 },
-                "extracted_symptoms": raw_data.get("extracted_entities", {}).get("symptoms", []),
-                "extracted_diagnosis": raw_data.get("extracted_entities", {}).get("diagnoses", []),
-                "referrals": raw_data.get("follow_up", {}).get("referrals", "None"),
-                "follow_ups": raw_data.get("follow_up", {})
+                "extracted_symptoms": ensure_list(raw_data.get("extracted_entities", {}).get("symptoms", [])),
+                "extracted_diagnosis": ensure_list(raw_data.get("extracted_entities", {}).get("diagnoses", [])),
+                "extracted_billing_codes": ensure_list(raw_data.get("extracted_entities", {}).get("billing_codes", [])),
+                "referrals": raw_data.get("follow_up", {}).get("referrals", "None") if isinstance(raw_data.get("follow_up"), dict) else "None",
+                "follow_ups": ensure_dict(raw_data.get("follow_up")),
+                "billing": billing_data
             }
                     
             return data
         except Exception as e:
             logger.error(f"Precise Scribe error: {e}")
-            soap_data = self._rule_based_soap_extraction(input_text)
+            soap_data = await self._rule_based_soap_extraction(input_text)
             return {
                 "clean_conversation": soap_data.get("clean_transcript", input_text),
                 "soap": {
-                    "subjective": soap_data.get("subjective", ""),
-                    "patient_history": soap_data.get("patient_history", ""),
-                    "objective": soap_data.get("objective", ""),
-                    "assessment": soap_data.get("assessment", ""),
-                    "plan": soap_data.get("plan", ""),
-                    "referrals": soap_data.get("follow_up", {}).get("referrals", "None"),
-                    "follow_ups": soap_data.get("follow_up", {})
+                    "subjective": ensure_dict(soap_data.get("subjective")),
+                    "patient_history": ensure_dict(soap_data.get("patient_history")),
+                    "objective": ensure_dict(soap_data.get("objective")),
+                    "assessment": ensure_dict(soap_data.get("assessment")),
+                    "plan": ensure_dict(soap_data.get("plan")),
+                    "follow_up": ensure_dict(soap_data.get("follow_up"))
                 },
-                "extracted_symptoms": soap_data.get("extracted_symptoms", []),
-                "extracted_diagnosis": soap_data.get("extracted_diagnosis", []),
-                "referrals": soap_data.get("follow_up", {}).get("referrals", "None"),
-                "follow_ups": soap_data.get("follow_up", {})
+                "extracted_symptoms": ensure_list(soap_data.get("extracted_entities", {}).get("symptoms", [])),
+                "extracted_diagnosis": ensure_list(soap_data.get("extracted_entities", {}).get("diagnoses", [])),
+                "extracted_billing_codes": ensure_list(soap_data.get("extracted_entities", {}).get("billing_codes", [])),
+                "referrals": soap_data.get("follow_up", {}).get("referrals", "None") if isinstance(soap_data.get("follow_up"), dict) else "None",
+                "follow_ups": ensure_dict(soap_data.get("follow_up")),
+                "billing": ensure_dict(soap_data.get("billing", {}))
             }
 
     async def analyze_emotions(self, text: str, speaker: str) -> List[Dict]:

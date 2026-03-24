@@ -79,16 +79,32 @@ async def encounter_ws(websocket: WebSocket, encounter_id: str):
 
     await websocket.accept()
     from app.modules.ai.fusion import ai_fusion
+    import base64
     try:
         while True:
-            # Receive audio chunk
-            data = await websocket.receive_bytes()
+            # Receive JSON message
+            message = await websocket.receive_json()
+            msg_type = message.get("type")
+            payload = message.get("data")
             
-            # Process stream
-            result = await ai_fusion.process_encounter_stream(encounter_id, data, live=True)
+            if not payload:
+                continue
+                
+            # Decode base64 payload
+            try:
+                raw_data = base64.b64decode(payload)
+            except Exception as e:
+                print(f"Base64 decode error: {e}")
+                continue
+
+            # Process based on type
+            if msg_type == "audio":
+                result = await ai_fusion.process_encounter_stream(encounter_id, audio_chunk=raw_data, live=True)
+                await websocket.send_text(json.dumps(result))
+            elif msg_type == "video":
+                result = await ai_fusion.process_encounter_stream(encounter_id, video_frame=raw_data, live=True)
+                await websocket.send_text(json.dumps(result))
             
-            # Send back JSON result
-            await websocket.send_text(json.dumps(result))
     except Exception as e:
         print(f"WS Error: {e}")
     finally:

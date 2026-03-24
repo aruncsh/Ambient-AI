@@ -104,8 +104,7 @@ const Encounter: React.FC = () => {
             if (videoRef.current) videoRef.current.srcObject = stream;
             
             // Connect WebSocket
-            /*
-            const socket = new WebSocket(`ws://${window.location.host}/ws/${id}`);
+            const socket = new WebSocket(`ws://${window.location.hostname}:8001/ws/${id}`);
             socketRef.current = socket;
             
             socket.onmessage = (event) => {
@@ -120,6 +119,7 @@ const Encounter: React.FC = () => {
                     setTranscript(prev => [...prev, {
                         speaker: data.speaker,
                         text: data.transcript,
+                        timestamp: data.timestamp,
                         time: new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                     }]);
                 }
@@ -127,21 +127,27 @@ const Encounter: React.FC = () => {
                 if (data.soap_update && data.soap_update.section !== "none") {
                     setLiveSoap((prev: any) => ({
                         ...prev,
-                        [data.soap_update.section]: prev[data.soap_update.section] 
-                            ? prev[data.soap_update.section] + "\n" + data.soap_update.cleaned_text
-                            : data.soap_update.cleaned_text
+                        [data.soap_update.section]: data.soap_update.cleaned_text
                     }));
                 }
 
                 if (data.vitals) setVitals(data.vitals);
                 if (data.emotions && data.emotions.length > 0) {
-                    setEmotions(prev => [...prev, ...data.emotions]);
+                    // Filter out duplicates and keep it clean
+                    setEmotions(prev => {
+                        const newEmos = [...prev];
+                        data.emotions.forEach((e: any) => {
+                            if (!newEmos.find(existing => existing.timestamp === e.timestamp)) {
+                                newEmos.push(e);
+                            }
+                        });
+                        return newEmos.slice(-10);
+                    });
                 }
                 if (data.nlp_insights) {
                     setInsights(prev => [...prev, ...data.nlp_insights]);
                 }
             };
-            */
 
             const getSupportedMimeType = () => {
                 const types = [
@@ -178,10 +184,13 @@ const Encounter: React.FC = () => {
             mediaRecorderRef.current = mediaRecorder;
             
             mediaRecorder.ondataavailable = async (e) => {
-                if (e.data.size > 0) {
-                    /* if (socket.readyState === WebSocket.OPEN) {
-                        socket.send(await e.data.arrayBuffer());
-                    } */
+                if (e.data.size > 0 && socket.readyState === WebSocket.OPEN) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const base64 = (reader.result as string).split(',')[1];
+                        socket.send(JSON.stringify({ type: 'audio', data: base64 }));
+                    };
+                    reader.readAsDataURL(e.data);
                     audioChunksRef.current.push(e.data);
                 }
             };
@@ -211,7 +220,7 @@ const Encounter: React.FC = () => {
             };
 
             // Small delay to ensure stream stabilization
-            setTimeout(startRecording, 200);
+            setTimeout(startRecording, 500);
 
         } catch (err: any) {
             console.error("Critical: Could not initialize ambient capture:", err);
@@ -219,6 +228,29 @@ const Encounter: React.FC = () => {
             setIsActive(false);
         }
     };
+
+    useEffect(() => {
+        let interval: any;
+        if (isActive && !privacyMode) {
+            interval = setInterval(() => {
+                if (videoRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = videoRef.current.videoWidth || 640;
+                    canvas.height = videoRef.current.videoHeight || 480;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        ctx.drawImage(videoRef.current, 0, 0);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+                        socketRef.current.send(JSON.stringify({ 
+                            type: 'video', 
+                            data: dataUrl.split(',')[1] 
+                        }));
+                    }
+                }
+            }, 3000);
+        }
+        return () => clearInterval(interval);
+    }, [isActive, privacyMode]);
 
     const stopEncounter = async () => {
         setIsActive(false); 
@@ -233,8 +265,11 @@ const Encounter: React.FC = () => {
         setTimeout(async () => {
             if (socketRef.current) socketRef.current.close();
             
-            const stream = videoRef.current?.srcObject as MediaStream;
-            stream?.getTracks().forEach(track => track.stop());
+            if (videoRef.current && videoRef.current.srcObject) {
+                const stream = videoRef.current.srcObject as MediaStream;
+                stream.getTracks().forEach(track => track.stop());
+                videoRef.current.srcObject = null;
+            }
 
             try {
                 const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });

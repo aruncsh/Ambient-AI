@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from typing import List, Optional
 from app.models.scheduling import Appointment
 from datetime import datetime
+from beanie import PydanticObjectId
 
 router = APIRouter()
 
@@ -12,7 +13,7 @@ async def list_appointments(patient_id: Optional[str] = None, clinician_id: Opti
         query["patient_id"] = patient_id
     if clinician_id:
         query["clinician_id"] = clinician_id
-    return await Appointment.find(query).to_list()
+    return await Appointment.find(query).sort("+start_time").to_list()
 
 @router.post("/", response_model=Appointment)
 async def create_appointment(appointment: Appointment):
@@ -27,3 +28,11 @@ async def update_appointment_status(id: str, status: str):
     appointment.status = status
     await appointment.save()
     return appointment
+
+@router.delete("/{id}")
+async def delete_appointment(id: str):
+    appointment = await Appointment.get(PydanticObjectId(id))
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    await appointment.delete()
+    return {"status": "deleted"}

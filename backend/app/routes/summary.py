@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException
-from app.models.encounter import Encounter
+from app.models.encounter import Encounter, SOAPNote
 from app.models.soap_summary import SOAPSummary
 from app.modules.summary.soap_generator import soap_generator
 from app.modules.ai.fusion import ai_fusion
 from beanie import PydanticObjectId
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,50 @@ async def text_to_soap(data: TextToSoapRequest):
     except Exception as e:
         logger.error(f"Text-to-SOAP failure: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{encounter_id}/update")
+async def update_soap(encounter_id: str, soap_note: SOAPNote):
+    """Allows clinicians to override AI-generated SOAP notes with manual refinements."""
+    try:
+        from bson.objectid import ObjectId
+        if not ObjectId.is_valid(encounter_id):
+            encounter = await Encounter.find_one(Encounter.id == encounter_id)
+        else:
+            encounter = await Encounter.get(PydanticObjectId(encounter_id))
+    except Exception as e:
+        logger.warning(f"Lookup failed for {encounter_id}: {e}")
+        encounter = None
+        
+    if not encounter:
+        raise HTTPException(status_code=404, detail="Encounter not found")
+        
+    # 1. Apply clinician's manual edits (Overrides everything)
+    encounter.soap_note = soap_note
+    encounter.updated_at = datetime.utcnow()
+    
+    # 2. Re-trigger automation workflow based on REFINED data
+    # Billing re-trigger
+    from app.modules.automation.billing_service import billing_service
+    billing_result = await billing_service.generate_claim(encounter_id, encounter.soap_note)
+    if billing_result.get("success"):
+        encounter.invoice_id = billing_result.get("invoice_id")
+        encounter.billing_codes = billing_result.get("billing_codes", [])
+    
+    # EHR Sync re-trigger
+    try:
+        from app.modules.automation.fhir_service import fhir_service
+        sync_result = await fhir_service.sync_encounter(encounter)
+        if sync_result.get("success"):
+            encounter.fhir_id = sync_result.get("fhir_id")
+            encounter.fhir_status = "synced"
+        else:
+            encounter.fhir_status = "failed"
+    except Exception as e:
+        logger.error(f"EHR manual re-sync error: {e}")
+        encounter.fhir_status = "failed"
+
+    await encounter.save()
+    return {"status": "success", "message": "Clinician refinement saved & synced", "billing_codes": encounter.billing_codes}
 
 class PreciseScribeRequest(BaseModel):
     input_text: str

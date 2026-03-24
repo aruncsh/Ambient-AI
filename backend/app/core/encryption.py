@@ -10,3 +10,11 @@ def encrypt_data(data: str) -> str:
 def decrypt_data(encrypted_data: str) -> str:
     if not encrypted_data: return ""
     return _fernet.decrypt(encrypted_data.encode()).decode()
+
+def encrypt_bytes(data: bytes) -> bytes:
+    if not data: return b""
+    return _fernet.encrypt(data)
+
+def decrypt_bytes(encrypted_data: bytes) -> bytes:
+    if not encrypted_data: return b""
+    return _fernet.decrypt(encrypted_data)

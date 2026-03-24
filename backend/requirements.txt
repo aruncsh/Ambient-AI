@@ -22,3 +22,5 @@ torchaudio
 rapidfuzz
 webrtcvad-mirror
 reportlab
+bleak
+pydub

@@ -1,22 +1,29 @@
 import logging
 import os
-import wave
-from typing import Dict, List, Optional
-from datetime import datetime
+import json
+import asyncio
+import struct
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
+
 from app.modules.ai.whisper import whisper_service
 from app.modules.ai.diarization import diarization_service
 from app.modules.ai.media_pipe import media_pipe_service
 from app.modules.ai.medical_nlp import medical_nlp_service
-from app.modules.automation.orders import automation_service
+from app.modules.automation.orders import order_automation
 from app.modules.automation.billing_service import billing_service
 from app.models.encounter import Encounter, SOAPNote
+from app.core.config import settings
+from app.core.encryption import encrypt_bytes, decrypt_bytes
+from app.modules.ai.vision import vision_service
+
+from beanie import PydanticObjectId
+from bson.objectid import ObjectId
 
 logger = logging.getLogger(__name__)
 
-from beanie import PydanticObjectId
-
 class AIFusion:
-    async def process_encounter_stream(self, encounter_id: str, audio_chunk: bytes, video_frame: Optional[bytes] = None, iot_data: Optional[Dict] = None, live: bool = False):
+    async def process_encounter_stream(self, encounter_id: str, audio_chunk: Optional[bytes] = None, video_frame: Optional[bytes] = None, iot_data: Optional[Dict] = None, live: bool = False):
         """
         Fuses data from multiple sources. Supports both live transcription and silent background recording.
         """
@@ -36,17 +43,42 @@ class AIFusion:
         if not encounter:
             return {"error": "Encounter not found"}
 
-        # 1. Save Raw Audio to Disk
-        if not encounter.recording_path:
-            recording_dir = os.path.join(os.getcwd(), "recordings")
-            os.makedirs(recording_dir, exist_ok=True)
-            encounter.recording_path = os.path.join(recording_dir, f"{encounter_id}.webm")
-        
-        # Append the raw WebM cluster/chunk perfectly retaining stream continuity
-        with open(encounter.recording_path, "ab") as f:
-            f.write(audio_chunk)
+        # 1. Save Raw Audio to Disk (Only if audio_chunk is provided)
+        pcm_data = b""
+        if audio_chunk:
+            if not encounter.recording_path:
+                recording_dir = os.path.join(os.getcwd(), "recordings")
+                os.makedirs(recording_dir, exist_ok=True)
+                encounter.recording_path = os.path.join(recording_dir, f"{encounter_id}.webm")
             
-        pcm_data = decode_to_pcm(audio_chunk, str(encounter.id))
+            # Append the raw WebM cluster/chunk perfectly retaining stream continuity (ENCRYPTED)
+            with open(encounter.recording_path, "ab") as f:
+                enc_chunk = encrypt_bytes(audio_chunk)
+                # Write 4 bytes length then the chunk
+                import struct
+                f.write(struct.pack("I", len(enc_chunk)))
+                f.write(enc_chunk)
+                
+            pcm_data = decode_to_pcm(audio_chunk, str(encounter.id))
+
+        # 1.5. Visual Analysis (New Feature A)
+        new_vision_indicators = {}
+        if video_frame:
+            try:
+                # Use MediaPipe logic through VisionAI or directly
+                res = await media_pipe_service.analyze_frame(video_frame)
+                if res and "error" not in res:
+                    new_vision_indicators = res
+                    # Store significant visual cues
+                    if res.get("emotion") in ["Pain", "Anxious"]:
+                        encounter.emotions.append({
+                            "emotion": res["emotion"],
+                            "confidence": res.get("emotion_confidence", 0.0),
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "type": "visual"
+                        })
+            except Exception as e:
+                logger.error(f"Vision analysis failed: {e}")
 
         # 2. VAD-based Speaker Toggling
         assigned_role = diarization_service.update_speaker_toggle(pcm_data)
@@ -56,10 +88,16 @@ class AIFusion:
             await encounter.save()
             return {"status": "listening"}
 
-        raw_text = await whisper_service.transcribe(audio_chunk, str(encounter.id))
-        if not raw_text or not raw_text.strip() or "Transcription Error" in raw_text:
+        if not audio_chunk:
+            # RETURN LIVE UPDATES (Vision/Vitals) IF NO NEW AUDIO
             await encounter.save()
-            return {"status": "processing"}
+            return {
+                "emotions": encounter.emotions[-5:],
+                "vitals": encounter.vitals,
+                "status": "active"
+            }
+
+        raw_text = await whisper_service.transcribe(audio_chunk, str(encounter.id))
 
         # 4. Cleaning and Insights
         display_text = raw_text
@@ -129,9 +167,13 @@ class AIFusion:
         
         # Update billing codes in encounter (additive)
         current_billing = encounter.billing_codes or []
+        existing_codes = {c["code"] if isinstance(c, dict) else str(c) for c in current_billing}
+        
         for b in billing_suggestions:
-            if b["code"] not in current_billing:
-                current_billing.append(b["code"])
+            code_val = b["code"] if isinstance(b, dict) else str(b)
+            if code_val not in existing_codes:
+                current_billing.append(b) # Store the whole object if possible
+                existing_codes.add(code_val)
         encounter.billing_codes = current_billing
 
         # Persistence
@@ -158,91 +200,125 @@ class AIFusion:
 
     async def batch_process_encounter(self, encounter_id: str):
         """
-        Transcribes the entire recording and performs speaker differentiation.
+        Diarizes and transcribes an encounter in batch mode from a saved file.
         """
         try:
-            from bson.objectid import ObjectId
-            if not ObjectId.is_valid(encounter_id):
-                encounter = await Encounter.find_one(Encounter.id == encounter_id)
-            else:
-                encounter = await Encounter.get(PydanticObjectId(encounter_id))
-        except:
-            encounter = None
-
-        if not encounter or not encounter.recording_path:
-            return None
-
-        logger.info(f"Starting batch transcription for {encounter_id}...")
-        
-        encounter_path = encounter.recording_path
-        if encounter_path.endswith(".webm"):
-            from pydub import AudioSegment
-            wav_path = encounter_path.replace(".webm", ".wav")
+            # 1. Get Encounter
+            from beanie import PydanticObjectId
             try:
-                audio_segment = AudioSegment.from_file(encounter_path)
-                audio_segment = audio_segment.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-                audio_segment.export(wav_path, format="wav")
-                encounter_path = wav_path
-                encounter.recording_path = wav_path
-                await encounter.save()
-            except Exception as e:
-                logger.error(f"Failed to convert webm to wav: {e}")
-
-        # 1. Full Transcription
-        segments = await whisper_service.transcribe_file(encounter_path)
-        
-        # 2. Speaker Differentiation (Batch Diarization)
-        # We'll use the already established diarization service per segment
-        import wave
-        with wave.open(encounter_path, 'rb') as wav:
-            params = wav.getparams()
-            raw_audio = wav.readframes(params.nframes)
-        processed_transcript = []
-        last_role = "Doctor" # Initial assumption for stateful tracking
-        
-        for seg in segments:
-            # 2.2. Speaker ID & Timestamp
-            from datetime import timedelta
-            try:
-                from app.modules.capture.audio_utils import suppress_noise
-                # Get the diarized speaker ID (e.g., "Speaker 1")
-                seg_audio = raw_audio[int(seg["start"] * params.framerate * params.sampwidth):int(seg["end"] * params.framerate * params.sampwidth)]
-                speaker_id = await diarization_service.get_speaker_id(suppress_noise(seg_audio))
-                
-                # Role Identification
-                # If the speaker_id is specific (not "Speaker 1", etc.), try to use already assigned role
-                is_generic = any(g in speaker_id for g in ["Speaker", "Unknown", "User"])
-                
-                role = None
-                if not is_generic:
-                    role = diarization_service.get_role(speaker_id)
-                
-                if not role:
-                    # Heuristic based on text content
-                    role = self._identify_role(seg["text"], speaker_id, last_role)
-                    
-                    # Only assign role to the ID if it's NOT a generic/failed diarization label
-                    if not is_generic and role in ["Doctor", "Patient"]:
-                        diarization_service.assign_role(speaker_id, role)
-                
-                last_role = role
-            except Exception as e:
-                logger.error(f"Diarization failed for segment: {e}")
-                role = "Speaker 1"
-
-            # Use encounter.created_at as the start time basis
-            base_time = encounter.created_at or datetime.utcnow()
-            ts = base_time + timedelta(seconds=seg.get("start", 0))
+                from bson.objectid import ObjectId
+                if not ObjectId.is_valid(encounter_id):
+                    encounter = await Encounter.find_one(Encounter.id == encounter_id)
+                else:
+                    encounter = await Encounter.get(PydanticObjectId(encounter_id))
+            except:
+                encounter = None
+    
+            if not encounter or not encounter.recording_path:
+                logger.warning(f"Batch process skipped for {encounter_id}: No encounter or recording path.")
+                return None
+    
+            logger.info(f"Starting batch transcription for {encounter_id}...")
             
-            processed_transcript.append({
-                "speaker": role,
-                "text": seg["text"],
-                "timestamp": ts.isoformat()
-            })
-
-        encounter.transcript = processed_transcript
-        await encounter.save()
-        return processed_transcript
+            encounter_path = encounter.recording_path
+            
+            # 0. Decrypt if file is encrypted (Check if it has our structure)
+            # Finalized .wav files are NOT encrypted. Raw .webm chunks ARE encrypted.
+            if os.path.exists(encounter_path) and encounter_path.endswith(".webm"):
+                try:
+                    decrypted_path = encounter_path.replace(".webm", "_decrypted.wav")
+                    import struct
+                    # Check if we should decrypt (simple heuristic: first 4 bytes are segment length)
+                    with open(encounter_path, "rb") as f_in:
+                        header = f_in.read(4)
+                    
+                    # If it looks like a WAV (starts with 'RIFF'), don't decrypt
+                    if header == b'RIFF':
+                        logger.info("File is already a WAV, skipping decryption.")
+                    else:
+                        logger.info(f"Decrypting {encounter_id} stream data...")
+                        with open(encounter_path, "rb") as f_in, open(decrypted_path, "wb") as f_out:
+                            while True:
+                                len_data = f_in.read(4)
+                                if not len_data: break
+                                if len(len_data) < 4: break
+                                chunk_len = struct.unpack("I", len_data)[0]
+                                chunk_data = f_in.read(chunk_len)
+                                if not chunk_data: break
+                                try:
+                                    f_out.write(decrypt_bytes(chunk_data))
+                                except Exception as decrypt_err:
+                                    logger.error(f"Chunk decryption failed: {decrypt_err}")
+                                    break
+                        encounter_path = decrypted_path
+                except Exception as e:
+                    logger.error(f"Decryption failed during batch processing: {e}")
+    
+            if encounter_path.endswith(".webm"):
+                from pydub import AudioSegment
+                wav_path = encounter_path.replace(".webm", ".wav")
+                try:
+                    audio_segment = AudioSegment.from_file(encounter_path)
+                    audio_segment = audio_segment.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+                    audio_segment.export(wav_path, format="wav")
+                    encounter_path = wav_path
+                    encounter.recording_path = wav_path
+                    await encounter.save()
+                except Exception as e:
+                    logger.error(f"Failed to convert webm to wav: {e}")
+    
+            # 1. Full Transcription
+            segments = []
+            try:
+                segments = await whisper_service.transcribe_file(encounter_path)
+            except Exception as e:
+                logger.error(f"Batch transcription failed: {e}")
+            
+            if not segments:
+                logger.warning(f"No speech detected in {encounter_id}.")
+                return None
+    
+            # 2. Speaker Differentiation (Batch Diarization)
+            processed_transcript = []
+            try:
+                import wave
+                with wave.open(encounter_path, 'rb') as wav:
+                    params = wav.getparams()
+                    raw_audio = wav.readframes(params.nframes)
+                
+                last_role = "Doctor" # Initial assumption for stateful tracking
+                
+                for seg in segments:
+                    # Role identification using diarization service per segment
+                    role = await diarization_service.identify_speaker(raw_audio, seg["start"], seg["end"])
+                    
+                    if role == "Unknown":
+                        # Logic to alternate if diarization is unsure
+                        role = "Patient" if last_role == "Doctor" else "Doctor"
+                    
+                    processed_transcript.append({
+                        "speaker": role,
+                        "text": seg["text"],
+                        "timestamp": (encounter.created_at + timedelta(seconds=seg["start"])).isoformat() if encounter.created_at else datetime.utcnow().isoformat()
+                    })
+                    last_role = role
+            except Exception as e:
+                logger.error(f"Diarization failure: {e}")
+                # Fallback: Just use the raw segments with alternating "Doctor"/"Patient"
+                for i, seg in enumerate(segments):
+                    processed_transcript.append({
+                        "speaker": "Doctor" if i % 2 == 0 else "Patient",
+                        "text": seg["text"],
+                        "timestamp": (encounter.created_at + timedelta(seconds=seg["start"])).isoformat() if encounter.created_at else datetime.utcnow().isoformat()
+                    })
+    
+            # 3. Save Final Transcript
+            encounter.transcript = processed_transcript
+            await encounter.save()
+            return encounter
+        except Exception as e:
+            logger.error(f"Global batch process failure for {encounter_id}: {e}")
+            return None
 
     def _identify_role(self, text: str, speaker_id: str, last_role: Optional[str] = None) -> str:
         """
@@ -339,31 +415,99 @@ class AIFusion:
         soap_data = clinical_info.get("soap", {})
         
         # Update encounter with the new SOAP note
-        # Map fields correctly to the SOAPNote model
-        encounter.soap_note = SOAPNote(
-            subjective=soap_data.get("subjective") or {},
-            patient_history=soap_data.get("patient_history") or {},
-            objective=soap_data.get("objective") or {},
-            assessment=soap_data.get("assessment") or {},
-            plan=soap_data.get("plan") or {},
-            clean_transcript=clinical_info.get("clean_conversation", ""),
-            follow_up=clinical_info.get("follow_ups") or {},
-            raw_transcript=full_transcript,
-            extracted_symptoms=clinical_info.get("extracted_symptoms", []),
-            extracted_diagnosis=clinical_info.get("extracted_diagnosis", []),
-            generated_at=datetime.utcnow()
-        )
+        try:
+            # 1. Map SOAP Sections with fallbacks to ensure no info is missing
+            encounter.soap_note = SOAPNote(
+                subjective=soap_data.get("subjective") if isinstance(soap_data.get("subjective"), dict) else {"history_of_present_illness": str(soap_data.get("subjective") or "")},
+                patient_history=soap_data.get("patient_history") if isinstance(soap_data.get("patient_history"), dict) else {"past_medical_history": [str(soap_data.get("patient_history") or "")]},
+                objective=soap_data.get("objective") if isinstance(soap_data.get("objective"), dict) else {"physical_examination": {"general_appearance": str(soap_data.get("objective") or "")}},
+                assessment=soap_data.get("assessment") if isinstance(soap_data.get("assessment"), dict) else {"primary_diagnosis": str(soap_data.get("assessment") or "")},
+                plan=soap_data.get("plan") if isinstance(soap_data.get("plan"), dict) else {"lifestyle_modifications": [str(soap_data.get("plan") or "")]},
+                clean_transcript=clinical_info.get("clean_conversation", ""),
+                
+                # Full mapping for follow-up and referrals (as requested)
+                follow_up={
+                    "follow_up_timeline": clinical_info.get("follow_ups", {}).get("follow_up_timeline") if isinstance(clinical_info.get("follow_ups"), dict) else str(clinical_info.get("follow_ups") or "None"),
+                    "warning_signs": clinical_info.get("follow_ups", {}).get("warning_signs", []) if isinstance(clinical_info.get("follow_ups"), dict) else [],
+                    "referrals": clinical_info.get("referrals", "None")
+                },
+                raw_transcript=full_transcript,
+                extracted_symptoms=clinical_info.get("extracted_symptoms", []),
+                extracted_diagnosis=clinical_info.get("extracted_diagnosis", []),
+                billing=clinical_info.get("billing", {}),
+                generated_at=datetime.utcnow()
+            )
+        except Exception as e:
+            logger.error(f"Critical SOAPNote creation failure: {e}")
+            # Ensure we have at least a default object to avoid downstream crashes
+            encounter.soap_note = SOAPNote(raw_transcript=full_transcript)
+        
+        # 2. Extract ICD-10 Codes from extracted diagnoses (Complete ICD Mapping)
+        try:
+            from app.modules.ai.icd10_lookup import icd10_service
+            icd10_results = []
+            
+            # Use seen set to avoid duplicates
+            seen_codes = set()
+            
+            for diag_item in encounter.soap_note.extracted_diagnosis:
+                diag_name = ""
+                llm_code = None
+                
+                if isinstance(diag_item, dict):
+                    diag_name = diag_item.get("name", "")
+                    llm_code = diag_item.get("icd10")
+                else:
+                    diag_name = diag_item
+                
+                if not diag_name:
+                    continue
+
+                # Search by LLM code if provided, otherwise by name
+                matches = icd10_service.lookup(llm_code or diag_name, limit=1)
+                
+                if matches:
+                    match = matches[0]
+                    if match["code"] not in seen_codes:
+                        icd10_results.append({
+                            "code": match["code"],
+                            "description": match["description"],
+                            "confidence": match["confidence"],
+                            "confirmed": False
+                        })
+                        seen_codes.add(match["code"])
+                elif llm_code:
+                    # Fallback to LLM code even if not in our database
+                    if llm_code not in seen_codes:
+                        icd10_results.append({
+                            "code": llm_code,
+                            "description": diag_name,
+                            "confidence": 0.8,
+                            "confirmed": False
+                        })
+                        seen_codes.add(llm_code)
+            
+            encounter.icd10_codes = icd10_results
+        except Exception as e:
+            logger.error(f"ICD-10 processing failed: {e}")
+
         
         # 3. Automated Tasks
         # A. Low-latency mock automation for orders and prescriptions
-        encounter.lab_orders = await automation_service.generate_lab_orders(encounter.soap_note.plan)
-        encounter.prescriptions = await automation_service.generate_prescriptions(encounter.soap_note.plan)
+        try:
+            encounter.lab_orders = await order_automation.generate_lab_orders(encounter.soap_note.plan)
+            encounter.prescriptions = await order_automation.generate_prescriptions(encounter.soap_note.plan)
+        except Exception as e:
+            logger.error(f"Automation (Orders/Rx) failed: {e}")
         
         # B. Automated Billing and Coding
-        billing_result = await billing_service.generate_claim(encounter_id, encounter.soap_note)
-        if billing_result.get("success"):
-            encounter.invoice_id = billing_result.get("invoice_id")
-            encounter.billing_codes = [c["code"] for c in billing_result.get("billing_codes", [])]
+        try:
+            billing_result = await billing_service.generate_claim(encounter_id, encounter.soap_note)
+            if billing_result.get("success"):
+                encounter.invoice_id = billing_result.get("invoice_id")
+                encounter.billing_codes = billing_result.get("billing_codes", [])
+        except Exception as e:
+            logger.error(f"Billing automation failed: {e}")
         
         # C. Sync to EHR (FHIR)
         try:
@@ -459,7 +603,10 @@ class AIFusion:
         await encounter.save() # Save the updated billing codes and potential insights
 
         # 3. Generate final summary using existing logic
+        # This will now include the improved field mapping + ICD-10 + billing
+        # Both "Voice to SOAP" and "Text to SOAP" use this same enhanced utility.
         soap_note = await self.generate_final_summary(str(encounter.id))
+
         return {
             "encounter_id": str(encounter.id),
             "soap_note": soap_note

@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
     OLLAMA_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "phi3"
+    OLLAMA_MODEL: str = "llama3.2:latest"
     TWILIO_SID: Optional[str] = None
     TWILIO_TOKEN: Optional[str] = None
     TWILIO_NUMBER: Optional[str] = None

@@ -1,14 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { History as HistoryIcon, Search, Calendar, ChevronRight, FileText, Filter } from 'lucide-react';
+import { History as HistoryIcon, Search, Calendar, ChevronRight, FileText, Filter, Loader2 } from 'lucide-react';
+import { api } from '../lib/api';
 
 const History = () => {
-  const [historyItems] = useState([
-    { id: '101', patient: 'Jane Cooper', date: 'Oct 12, 2023', type: 'General Checkup', status: 'Archived' },
-    { id: '102', patient: 'Cody Fisher', date: 'Oct 11, 2023', type: 'Neurological Follow-up', status: 'Cleared' },
-    { id: '103', patient: 'Esther Howard', date: 'Oct 10, 2023', type: 'Medication Review', status: 'Archived' },
-    { id: '104', patient: 'Robert Fox', date: 'Oct 08, 2023', type: 'Post-Op Consultation', status: 'Archived' },
-  ]);
+  const navigate = useNavigate();
+  const [encounters, setEncounters] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const fetchEncounters = async () => {
+    try {
+      setLoading(true);
+      const data = await api.getEncounters();
+      setEncounters(data);
+    } catch (err) {
+      console.error("Failed to fetch encounters", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEncounters();
+  }, []);
+
+  const filteredEncounters = encounters.filter(enc => 
+    enc.patient_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    enc.patient_id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    enc.status?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <motion.div 
@@ -31,6 +53,8 @@ const History = () => {
               <input 
                 type="text" 
                 placeholder="Search repository..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 className="bg-zinc-900 shadow-inner border-zinc-800 rounded-2xl pl-12 pr-6 py-4 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none w-80"
               />
            </div>
@@ -43,39 +67,50 @@ const History = () => {
       <div className="glass-card p-0 overflow-hidden border-white/5 bg-zinc-950/20">
         <div className="grid grid-cols-12 gap-0 border-b border-white/5 px-8 py-5">
            <div className="col-span-4 text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Patient Identity</div>
-           <div className="col-span-3 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Encounter Type</div>
+           <div className="col-span-3 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Outcome / Status</div>
            <div className="col-span-2 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Timestamp</div>
            <div className="col-span-2 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Compliance</div>
            <div className="col-span-1"></div>
         </div>
 
         <div className="divide-y divide-white/5">
-           {historyItems.map((item, idx) => (
+           {loading ? (
+             <div className="p-20 flex justify-center"><Loader2 className="animate-spin text-indigo-500" size={32} /></div>
+           ) : filteredEncounters.length === 0 ? (
+             <div className="p-20 text-center text-zinc-500 font-medium">No encounter records found.</div>
+           ) : filteredEncounters.map((item, idx) => (
              <motion.div 
-               key={item.id}
+               key={item.id || idx}
                initial={{ opacity: 0, y: 5 }}
                animate={{ opacity: 1, y: 0 }}
                transition={{ delay: idx * 0.05 }}
+               onClick={() => navigate(`/review/${item.id}`)}
                className="grid grid-cols-12 gap-0 px-8 py-8 items-center hover:bg-white/[0.02] cursor-pointer transition-colors group"
              >
                 <div className="col-span-4 flex items-center gap-5">
                    <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-500 group-hover:text-indigo-400 transition-colors">
                       <FileText size={20} />
                    </div>
-                   <span className="font-bold text-white tracking-tight">{item.patient}</span>
+                   <span className="font-bold text-white tracking-tight">{item.patient_name || item.patient_id}</span>
                 </div>
                 <div className="col-span-3 text-center">
-                   <span className="text-xs font-medium text-zinc-400 italic">"{item.type}"</span>
+                   <span className="text-xs font-medium text-indigo-400 uppercase tracking-widest">
+                    {item.status === 'completed' ? 'SOAP Generated' : 'Active Session'}
+                   </span>
                 </div>
                 <div className="col-span-2 text-center">
                    <div className="flex flex-col items-center gap-1">
-                      <span className="text-xs font-bold text-white">{item.date}</span>
-                      <span className="text-[10px] text-zinc-600 font-medium">10:42 AM</span>
+                      <span className="text-xs font-bold text-white">{new Date(item.created_at).toLocaleDateString()}</span>
+                      <span className="text-[10px] text-zinc-600 font-medium">{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                    </div>
                 </div>
                 <div className="col-span-2 text-center">
-                   <span className="px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
-                      {item.status}
+                   <span className={`px-3 py-1 rounded-full border text-[9px] font-bold uppercase tracking-widest ${
+                     item.status === 'completed' 
+                     ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-400' 
+                     : 'bg-indigo-500/5 border-indigo-500/10 text-indigo-400'
+                   }`}>
+                      {item.status === 'completed' ? 'Vaulted' : 'Ephemeral'}
                    </span>
                 </div>
                 <div className="col-span-1 flex justify-end">

@@ -1,30 +1,21 @@
-import mediapipe as mp
-import cv2
+from app.modules.ai.media_pipe import media_pipe_service
 
 class VisionAI:
     def __init__(self):
-        try:
-            import mediapipe.solutions.pose as mp_pose
-            import mediapipe.solutions.face_mesh as mp_face_mesh
-            self.mp_pose = mp_pose
-            self.mp_face_mesh = mp_face_mesh
-            self.enabled = True
-        except (ImportError, AttributeError):
-            self.mp_pose = None
-            self.mp_face_mesh = None
-            self.enabled = False
-            print("Warning: MediaPipe solutions not found. Vision AI features will be disabled.")
+        self.enabled = media_pipe_service.enabled
 
     async def analyze_emotions(self, frame_bytes: bytes):
         """Detects patient anxiety or discomfort markers."""
-        if not self.enabled:
-            return {"emotion": "unknown", "status": "disabled"}
-        return {"emotion": "neutral", "score": 0.85}
+        res = await media_pipe_service.analyze_frame(frame_bytes)
+        if "error" in res:
+            return {"emotion": "unknown", "status": "failed"}
+        return {"emotion": res.get("emotion", "neutral"), "score": res.get("emotion_confidence", 0.0)}
 
     async def detect_gestures(self, frame_bytes: bytes):
         """Detects gestures like 'clutching chest'."""
-        if not self.enabled:
-            return {"gesture": "unknown", "status": "disabled"}
-        return {"gesture": "none"}
+        res = await media_pipe_service.analyze_frame(frame_bytes)
+        if "error" in res:
+            return {"gesture": "unknown", "status": "failed"}
+        return {"gesture": res.get("gesture", "none"), "score": res.get("gesture_confidence", 0.0)}
 
-vision_ai = VisionAI()
+vision_service = VisionAI()
