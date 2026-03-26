@@ -24,7 +24,10 @@ const Review: React.FC = () => {
         lab_orders: [] as string[],
         prescriptions: [] as any[],
         billing_codes: [] as any[],
+        patient_name: "",
         invoice_id: "",
+        billing_amount: 0 as number,
+        billing_currency: "INR",
         fhir_id: "",
         fhir_status: "pending"
     });
@@ -47,17 +50,18 @@ const Review: React.FC = () => {
                 const encounterData = await encounterResp.json();
                 
                 if (summaryData) {
+                    const soapNote = summaryData.soap || summaryData;
                     setSoap({
-                        subjective: summaryData.subjective || "",
-                        patient_history: summaryData.patient_history || "",
-                        objective: summaryData.objective || "",
-                        assessment: summaryData.assessment || "",
-                        plan: summaryData.plan || "",
-                        referrals: summaryData.follow_up?.referrals || summaryData.referrals || "",
-                        follow_ups: summaryData.follow_up 
-                            ? `${summaryData.follow_up.follow_up_timeline || 'As needed'}\n\nWarning Signs: ${summaryData.follow_up.warning_signs?.join(', ') || 'None'}`
-                            : summaryData.follow_ups || "",
-                        clean_transcript: summaryData.clean_transcript || ""
+                        subjective: soapNote.subjective || "",
+                        patient_history: soapNote.patient_history || "",
+                        objective: soapNote.objective || "",
+                        assessment: soapNote.assessment || "",
+                        plan: soapNote.plan || "",
+                        referrals: soapNote.follow_up?.referrals || soapNote.referrals || "",
+                        follow_ups: soapNote.follow_up 
+                            ? `${soapNote.follow_up.follow_up_timeline || 'As needed'}\n\nWarning Signs: ${soapNote.follow_up.warning_signs?.join(', ') || 'None'}`
+                            : soapNote.follow_ups || "",
+                        clean_transcript: soapNote.clean_transcript || ""
                     });
                 }
                 
@@ -66,7 +70,10 @@ const Review: React.FC = () => {
                         lab_orders: encounterData.lab_orders || summaryData.lab_orders || [],
                         prescriptions: encounterData.prescriptions || summaryData.prescriptions || [],
                         billing_codes: encounterData.billing_codes || summaryData.billing_codes || [],
+                        patient_name: encounterData.patient_name || "Anonymous",
                         invoice_id: encounterData.invoice_id || summaryData.invoice_id || "",
+                        billing_amount: (encounterData.billing_amount !== undefined && encounterData.billing_amount !== null) ? encounterData.billing_amount : (summaryData.billing_amount || 0),
+                        billing_currency: encounterData.billing_currency || summaryData.currency || "INR",
                         fhir_id: encounterData.fhir_id || summaryData.fhir_id || "",
                         fhir_status: encounterData.fhir_status || summaryData.fhir_status || "pending"
                     });
@@ -132,14 +139,22 @@ const Review: React.FC = () => {
             const resp = await fetch(`/api/summary/${id}/update`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(soap)
+                body: JSON.stringify({
+                    soap_note: soap,
+                    billing_codes: automation.billing_codes,
+                    patient_name: automation.patient_name
+                })
             });
             const result = await resp.json();
             if (result.status === 'success') {
-                // Update local automation state if billing codes changed
-                if (result.billing_codes) {
-                    setAutomation(prev => ({ ...prev, billing_codes: result.billing_codes }));
-                }
+                // Update local automation state with backend calculated totals
+                setAutomation(prev => ({ 
+                    ...prev, 
+                    billing_codes: result.billing_codes || prev.billing_codes,
+                    billing_amount: result.billing_amount !== undefined ? result.billing_amount : prev.billing_amount,
+                    billing_currency: result.billing_currency || prev.billing_currency,
+                    invoice_id: result.invoice_id || prev.invoice_id
+                }));
                 alert("Encounter signed and synchronized with EHR.");
                 navigate('/history');
             }
@@ -309,7 +324,16 @@ const Review: React.FC = () => {
                                                 {typeof c === 'object' ? (typeof c.code === 'object' ? (c.code.code || JSON.stringify(c.code)) : String(c.code)) : String(c)}
                                             </span>
                                         ))}
-                                        {automation.invoice_id && <div className="w-full text-[9px] text-emerald-600 mt-1 uppercase font-bold">ID: {automation.invoice_id}</div>}
+                                        {automation.invoice_id && (
+                                            <div className="w-full mt-2 pt-2 border-t border-emerald-500/10 flex justify-between items-center">
+                                                <div className="text-[9px] text-emerald-600 uppercase font-bold tracking-wider">ID: {automation.invoice_id}</div>
+                                                <div className="text-xs font-black text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded flex items-baseline gap-1">
+                                                    <span className="text-[10px] opacity-60">₹</span>
+                                                    {automation.billing_amount !== undefined ? automation.billing_amount.toLocaleString() : '0'}
+                                                    <span className="text-[8px] opacity-60 ml-0.5">{automation.billing_currency || 'INR'}</span>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             )}

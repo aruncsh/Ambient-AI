@@ -502,12 +502,21 @@ class AIFusion:
         
         # B. Automated Billing and Coding
         try:
-            billing_result = await billing_service.generate_claim(encounter_id, encounter.soap_note)
+            # Pass encounter object to ensure consistency with what was just updated
+            billing_result = await billing_service.generate_claim(encounter_id, encounter.soap_note, encounter_obj=encounter)
+            logger.info(f"Billing result for {encounter_id}: {billing_result}")
             if billing_result.get("success"):
                 encounter.invoice_id = billing_result.get("invoice_id")
                 encounter.billing_codes = billing_result.get("billing_codes", [])
+                encounter.billing_amount = billing_result.get("total_amount")
+                encounter.billing_currency = billing_result.get("currency", "INR")
+                logger.info(f"Updated encounter {encounter_id} with amount {encounter.billing_amount}")
+            else:
+                logger.warning(f"Billing automation failed for {encounter_id}: {billing_result.get('error')}")
+                encounter.billing_amount = encounter.billing_amount or 250.0
         except Exception as e:
             logger.error(f"Billing automation failed: {e}")
+            encounter.billing_amount = encounter.billing_amount or 250.0
         
         # C. Sync to EHR (FHIR)
         try:
@@ -524,7 +533,15 @@ class AIFusion:
             
         encounter.status = "completed"
         await encounter.save()
-        return encounter.soap_note
+        
+        # Return a dict containing both SOAP note and automation totals to help frontend
+        return {
+            "soap": encounter.soap_note,
+            "billing_amount": encounter.billing_amount,
+            "billing_codes": encounter.billing_codes,
+            "invoice_id": encounter.invoice_id,
+            "currency": encounter.billing_currency
+        }
 
     async def generate_summary_from_text(self, raw_text: str, patient_id: str = "Anonymous"):
         """

@@ -4,12 +4,29 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, FileText, ChevronRight, Clock, User as UserIcon, Activity, ShieldCheck, Zap, Brain } from 'lucide-react';
 
 const Dashboard = () => {
-  const [encounters, setEncounters] = useState<any[]>([
-    { id: '1', patient_id: 'Jane Cooper', status: 'completed', time: '2h ago' },
-    { id: '2', patient_id: 'Cody Fisher', status: 'active', time: 'Now' },
-    { id: '3', patient_id: 'Esther Howard', status: 'completed', time: '5h ago' }
-  ]);
+  const [encounters, setEncounters] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  const fetchEncounters = async () => {
+    try {
+      setLoading(true);
+      const resp = await fetch('/api/encounters/');
+      const data = await resp.json();
+      setEncounters(data.slice(0, 5)); // Show only recent 5
+    } catch (err) {
+      console.error("Failed to fetch dashboard data", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEncounters();
+  }, []);
+
+  const totalBillable = encounters.reduce((sum, enc) => sum + (enc.billing_amount || 0), 0);
+  const completedEncounters = encounters.filter(enc => enc.status === 'completed').length;
 
   return (
     <motion.div 
@@ -47,11 +64,20 @@ const Dashboard = () => {
           <div className="glass-card bg-zinc-950/20 border-white/5 space-y-8">
             <div className="flex justify-between items-center">
               <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Recent Activity HUD</h3>
-              <button className="text-indigo-400 text-[10px] font-bold uppercase tracking-widest hover:text-indigo-300 transition-colors">Complete Archive</button>
+              <button 
+                onClick={() => navigate('/history')}
+                className="text-indigo-400 text-[10px] font-bold uppercase tracking-widest hover:text-indigo-300 transition-colors"
+              >
+                Complete Archive
+              </button>
             </div>
             
             <div className="space-y-4">
-              {encounters.map((enc, idx) => (
+              {loading ? (
+                <div className="p-10 flex justify-center text-zinc-500 font-medium animate-pulse">Synchronizing encounter data...</div>
+              ) : encounters.length === 0 ? (
+                <div className="p-10 text-center text-zinc-500 font-medium">No recent encounters found.</div>
+              ) : encounters.map((enc, idx) => (
                 <motion.div 
                   key={enc.id} 
                   initial={{ opacity: 0, x: -10 }}
@@ -65,14 +91,20 @@ const Dashboard = () => {
                       <UserIcon size={24} />
                     </div>
                     <div>
-                      <p className="font-bold text-white text-lg tracking-tight">{enc.patient_id}</p>
+                      <p className="font-bold text-white text-lg tracking-tight">{enc.patient_name || enc.patient_id}</p>
                       <div className="flex items-center gap-4 text-xs text-zinc-500 mt-1 font-medium">
-                        <span className="flex items-center gap-1.5"><Clock size={14} /> {enc.time}</span>
+                        <span className="flex items-center gap-1.5"><Clock size={14} /> {new Date(enc.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         <span className="w-1 h-1 bg-zinc-800 rounded-full"></span>
                         <span className={`flex items-center gap-1.5 ${enc.status === 'active' ? 'text-indigo-400' : 'text-zinc-600'}`}>
                           <div className={`w-1.5 h-1.5 rounded-full ${enc.status === 'active' ? 'bg-indigo-500 shadow-indigo-500/50 pulse' : 'bg-zinc-700'}`} />
                           {enc.status}
                         </span>
+                        {enc.billing_amount > 0 && (
+                          <>
+                            <span className="w-1 h-1 bg-zinc-800 rounded-full"></span>
+                            <span className="text-emerald-400 font-bold">₹{enc.billing_amount.toLocaleString()}</span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -87,13 +119,13 @@ const Dashboard = () => {
           <div className="grid grid-cols-2 gap-8">
              <div className="glass-card p-10 bg-indigo-600/5 border-indigo-500/10">
                 <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-4">Patient Intelligence</h4>
-                <div className="text-3xl font-bold text-white">124</div>
-                <div className="text-xs text-zinc-500 mt-2 font-medium">Encounters captured this month</div>
+                <div className="text-3xl font-bold text-white">{completedEncounters}</div>
+                <div className="text-xs text-zinc-500 mt-2 font-medium">Encounters finalized recently</div>
              </div>
-             <div className="glass-card p-10 bg-rose-600/5 border-rose-500/10">
-                <h4 className="text-xs font-bold text-rose-400 uppercase tracking-widest mb-4">Time Optimization</h4>
-                <div className="text-3xl font-bold text-white">42h</div>
-                <div className="text-xs text-zinc-500 mt-2 font-medium">Saved via AI SOAP generation</div>
+             <div className="glass-card p-10 bg-emerald-600/5 border-emerald-500/10">
+                <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-4">Revenue Pipeline</h4>
+                <div className="text-3xl font-bold text-white">₹{totalBillable.toLocaleString()}</div>
+                <div className="text-xs text-zinc-500 mt-2 font-medium">Potential billable revenue detected</div>
              </div>
           </div>
         </div>

@@ -80,8 +80,8 @@ const Billing = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
         {[
-            { label: 'Total Outstanding', val: `$${totalOutstanding.toLocaleString()}`, icon: DollarSign, color: 'text-rose-400', bg: 'bg-rose-500/5 border-rose-500/10' },
-            { label: 'Revenue (MTD)', val: `$${revenueMTD.toLocaleString()}`, icon: TrendingUp, color: 'text-emerald-400', bg: 'bg-emerald-500/5 border-emerald-500/10' },
+            { label: 'Total Outstanding', val: `₹${totalOutstanding.toLocaleString()}`, icon: DollarSign, color: 'text-rose-400', bg: 'bg-rose-500/5 border-rose-500/10' },
+            { label: 'Revenue (MTD)', val: `₹${revenueMTD.toLocaleString()}`, icon: TrendingUp, color: 'text-emerald-400', bg: 'bg-emerald-500/5 border-emerald-500/10' },
             { label: 'Active Claims', val: activeClaims.toString(), icon: CreditCard, color: 'text-indigo-400', bg: 'bg-indigo-500/5 border-indigo-500/10' }
         ].map((stat, i) => (
             <div key={i} className={`glass-card p-10 ${stat.bg}`}>
@@ -128,7 +128,7 @@ const Billing = () => {
                    </div>
                 </div>
                 <div className="col-span-3 text-center">
-                   <div className="text-xl font-bold text-white">${Number(inv.amount).toFixed(2)}</div>
+                   <div className="text-xl font-bold text-white">₹{Number(inv.amount).toFixed(2)}</div>
                    <div className="text-[10px] text-zinc-600 font-bold uppercase">{new Date(inv.created_at).toLocaleDateString()}</div>
                 </div>
                 <div className="col-span-3 text-center">

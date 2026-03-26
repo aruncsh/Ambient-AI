@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 import uuid
 import logging
+import re
 from datetime import datetime, timedelta
 from app.models.billing import Invoice
 from app.models.encounter import Encounter
@@ -8,8 +9,29 @@ from beanie import PydanticObjectId
 from bson.objectid import ObjectId
 
 logger = logging.getLogger(__name__)
+
+# CPT Pricing Mapping in INR
+CPT_PRICING = {
+    "99203": 1000.0,
+    "99204": 1500.0,
+    "99205": 2000.0,
+    "99212": 300.0,
+    "99213": 500.0,
+    "99214": 800.0,
+    "99215": 1200.0,
+    "93000": 500.0,  # ECG
+    "94640": 300.0,  # Nebulizer
+    "36415": 150.0,  # Blood draw
+    "80053": 600.0,  # CMP
+    "80061": 500.0,  # Lipid
+    "85025": 300.0,  # CBC
+}
+
+DEFAULT_CPT_PRICE = 500.0
+BASE_FACILITY_FEE = 250.0
+
 class BillingService:
-    async def generate_claim(self, encounter_id: str, soap_note: Any) -> Dict:
+    async def generate_claim(self, encounter_id: str, soap_note: Any, encounter_obj: Optional[Encounter] = None) -> Dict:
         """
         Suggests ICD-10 and CPT codes based on SOAP note and generates invoice.
         The matching flow prioritizes clinical entities from the conversation.
@@ -65,30 +87,36 @@ class BillingService:
                     ai_cpt_codes = soap_note.get('billing', {}).get('cpt_codes', [])
 
             # Get encounter to find existing info and patient context
-            encounter = None
-            try:
-                from bson.objectid import ObjectId
-                from beanie import PydanticObjectId
-                if ObjectId.is_valid(str(encounter_id)):
-                    if not isinstance(encounter_id, ObjectId):
-                        encounter = await Encounter.get(PydanticObjectId(encounter_id))
+            encounter = encounter_obj
+            if not encounter:
+                try:
+                    from bson.objectid import ObjectId
+                    from beanie import PydanticObjectId
+                    if ObjectId.is_valid(str(encounter_id)):
+                        if not isinstance(encounter_id, ObjectId):
+                            encounter = await Encounter.get(PydanticObjectId(encounter_id))
+                        else:
+                            encounter = await Encounter.get(encounter_id)
                     else:
-                        encounter = await Encounter.get(encounter_id)
-                else:
-                    encounter = await Encounter.find_one(Encounter.id == encounter_id)
-            except Exception as e:
-                logger.warning(f"Encounter lookup failed in BillingService: {e}")
+                        encounter = await Encounter.find_one(Encounter.id == encounter_id)
+                except Exception as e:
+                    logger.warning(f"Encounter lookup failed in BillingService: {e}")
 
             # If no AI codes in SOAP, check if encounter already has collected billing codes
             if not ai_cpt_codes and encounter and encounter.billing_codes:
                 ai_cpt_codes = []
                 for entry in encounter.billing_codes:
+                    # ONLY include codes that are explicitly CPT or look like CPT (5 digits starting with 9)
                     code_val = entry.get("code") if isinstance(entry, dict) else str(entry)
-                    ai_cpt_codes.append({
-                        "code": code_val, 
-                        "description": "AI Suggested", 
-                        "reasoning": "Collected during encounter stream"
-                    })
+                    system = entry.get("system") if isinstance(entry, dict) else ""
+                    
+                    # Filter: system must be CPT OR it must look like a CPT code (5 digits)
+                    if system == "CPT" or (not system and re.match(r"^\d{5}$", code_val)):
+                        ai_cpt_codes.append({
+                            "code": code_val, 
+                            "description": entry.get("description", "AI Suggested") if isinstance(entry, dict) else "AI Suggested", 
+                            "reasoning": entry.get("reasoning", "Collected during encounter stream") if isinstance(entry, dict) else "Collected during encounter stream"
+                        })
 
             # Add AI suggested CPT codes to the billing flow
             if ai_cpt_codes:
@@ -155,8 +183,22 @@ class BillingService:
                         "reasoning": "No clinical markers found to determine billing level"
                     })
 
-            # Calculate total amount based on code volume and complexity
-            amount = 150.00 + (len([c for c in codes if c["system"] == "ICD-10"]) * 15.0) + (len([c for c in codes if c["system"] == "CPT"]) * 35.0)
+            # Calculate total amount based on specific CPT code pricing (in INR)
+            # OVERALL BILLING Logic: Instead of summing, use the highest CPT price found.
+            cpt_prices = []
+            cpt_found = False
+            
+            logger.info(f"Billing calculation start. Found codes: {codes}")
+            
+            for code_entry in [c for c in codes if c["system"] == "CPT"]:
+                code_val = str(code_entry["code"]).strip()
+                if code_val != "PENDING":
+                    price = CPT_PRICING.get(code_val, DEFAULT_CPT_PRICE)
+                    cpt_prices.append(price)
+                    cpt_found = True
+            
+            # Application of overall pricing logic: Max of CPTs OR base fee if no CPTs
+            amount = max(cpt_prices) if cpt_found else BASE_FACILITY_FEE
 
             # Get encounter to find patient info
             encounter = None
@@ -170,28 +212,38 @@ class BillingService:
             except Exception as e:
                 logger.warning(f"Encounter lookup failed in BillingService: {e}")
                 
-            # Create actual Invoice in database
-            invoice = Invoice(
-                patient_id=encounter.patient_id if encounter else "P123",
-                patient_name=encounter.patient_name if (encounter and hasattr(encounter, 'patient_name')) else "Anonymous Patient",
-                encounter_id=str(encounter_id),
-                amount=amount,
-                status="pending",
-                due_date=datetime.utcnow() + timedelta(days=30)
-            )
-            await invoice.insert()
+            # Create or update Invoice in database
+            # Use dictionary syntax for queries to be safer with Beanie initialization
+            invoice = await Invoice.find_one({"encounter_id": str(encounter_id)})
+            if invoice:
+                invoice.amount = amount
+                invoice.status = "pending"
+                if encounter:
+                    invoice.patient_id = encounter.patient_id
+                    invoice.patient_name = encounter.patient_name if hasattr(encounter, 'patient_name') else invoice.patient_name
+                await invoice.save()
+            else:
+                invoice = Invoice(
+                    patient_id=encounter.patient_id if encounter else "P123",
+                    patient_name=encounter.patient_name if (encounter and hasattr(encounter, 'patient_name')) else "Anonymous Patient",
+                    encounter_id=str(encounter_id),
+                    amount=amount,
+                    status="pending",
+                    due_date=datetime.utcnow() + timedelta(days=30)
+                )
+                await invoice.insert()
 
             return {
                 "invoice_id": str(invoice.id),
                 "encounter_id": str(encounter_id),
                 "billing_codes": codes,
                 "total_amount": amount,
-                "currency": "USD",
+                "currency": "INR",
                 "status": "pending",
                 "success": True
             }
         except Exception as e:
-            logger.error(f"Billing claim generation failed: {e}")
+            logger.exception(f"Billing claim generation failed: {e}")
             return {
                 "success": False, 
                 "error": str(e),

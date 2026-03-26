@@ -66,10 +66,11 @@ const History = () => {
 
       <div className="glass-card p-0 overflow-hidden border-white/5 bg-zinc-950/20">
         <div className="grid grid-cols-12 gap-0 border-b border-white/5 px-8 py-5">
-           <div className="col-span-4 text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Patient Identity</div>
+           <div className="col-span-3 text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Patient Identity</div>
            <div className="col-span-3 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Outcome / Status</div>
            <div className="col-span-2 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Timestamp</div>
-           <div className="col-span-2 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Compliance</div>
+           <div className="col-span-2 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Bill Amount</div>
+           <div className="col-span-1 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Status</div>
            <div className="col-span-1"></div>
         </div>
 
@@ -87,7 +88,7 @@ const History = () => {
                onClick={() => navigate(`/review/${item.id}`)}
                className="grid grid-cols-12 gap-0 px-8 py-8 items-center hover:bg-white/[0.02] cursor-pointer transition-colors group"
              >
-                <div className="col-span-4 flex items-center gap-5">
+                <div className="col-span-3 flex items-center gap-5">
                    <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-500 group-hover:text-indigo-400 transition-colors">
                       <FileText size={20} />
                    </div>
@@ -105,12 +106,17 @@ const History = () => {
                    </div>
                 </div>
                 <div className="col-span-2 text-center">
-                   <span className={`px-3 py-1 rounded-full border text-[9px] font-bold uppercase tracking-widest ${
+                   <span className="text-sm font-bold text-emerald-400">
+                    {item.billing_amount > 0 ? `₹${item.billing_amount.toLocaleString()}` : '--'}
+                   </span>
+                </div>
+                <div className="col-span-1 text-center">
+                   <span className={`px-2 py-1 rounded-full border text-[8px] font-bold uppercase tracking-widest ${
                      item.status === 'completed' 
                      ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-400' 
                      : 'bg-indigo-500/5 border-indigo-500/10 text-indigo-400'
                    }`}>
-                      {item.status === 'completed' ? 'Vaulted' : 'Ephemeral'}
+                      {item.status === 'completed' ? 'Vault' : 'Live'}
                    </span>
                 </div>
                 <div className="col-span-1 flex justify-end">

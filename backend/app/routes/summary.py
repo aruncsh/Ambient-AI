@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from typing import Dict, Any
 from app.models.encounter import Encounter, SOAPNote
 from app.models.soap_summary import SOAPSummary
 from app.modules.summary.soap_generator import soap_generator
@@ -51,48 +52,75 @@ async def text_to_soap(data: TextToSoapRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{encounter_id}/update")
-async def update_soap(encounter_id: str, soap_note: SOAPNote):
-    """Allows clinicians to override AI-generated SOAP notes with manual refinements."""
+async def update_soap(encounter_id: str, request_data: Dict):
+    """Allows clinicians to override AI-generated SOAP notes, patient info, and billing with manual refinements."""
     try:
         from bson.objectid import ObjectId
         if not ObjectId.is_valid(encounter_id):
             encounter = await Encounter.find_one(Encounter.id == encounter_id)
         else:
             encounter = await Encounter.get(PydanticObjectId(encounter_id))
-    except Exception as e:
-        logger.warning(f"Lookup failed for {encounter_id}: {e}")
-        encounter = None
+            
+        if not encounter:
+            raise HTTPException(status_code=404, detail="Encounter not found")
+            
+        # 1. Update encounter data from request
+        # Support both direct SOAPNote objects or a wrapper with billing/patient info
+        soap_raw = request_data.get("soap_note")
+        if soap_raw:
+            # If it's a dict, convert to SOAPNote object
+            if isinstance(soap_raw, dict):
+                encounter.soap_note = SOAPNote(**soap_raw)
+            else:
+                encounter.soap_note = soap_raw
         
-    if not encounter:
-        raise HTTPException(status_code=404, detail="Encounter not found")
+        # Optional fields for manual billing/patient refinement
+        if "billing_codes" in request_data:
+            encounter.billing_codes = request_data["billing_codes"]
+        if "patient_name" in request_data:
+            encounter.patient_name = request_data["patient_name"]
+            
+        encounter.updated_at = datetime.utcnow()
+    
+        # 2. Re-trigger automation workflow based on REFINED data
+        from app.modules.automation.billing_service import billing_service
+        # Pass the memory-updated encounter object to avoid stale DB lookups
+        billing_result = await billing_service.generate_claim(encounter_id, encounter.soap_note, encounter_obj=encounter)
         
-    # 1. Apply clinician's manual edits (Overrides everything)
-    encounter.soap_note = soap_note
-    encounter.updated_at = datetime.utcnow()
-    
-    # 2. Re-trigger automation workflow based on REFINED data
-    # Billing re-trigger
-    from app.modules.automation.billing_service import billing_service
-    billing_result = await billing_service.generate_claim(encounter_id, encounter.soap_note)
-    if billing_result.get("success"):
-        encounter.invoice_id = billing_result.get("invoice_id")
-        encounter.billing_codes = billing_result.get("billing_codes", [])
-    
-    # EHR Sync re-trigger
-    try:
-        from app.modules.automation.fhir_service import fhir_service
-        sync_result = await fhir_service.sync_encounter(encounter)
-        if sync_result.get("success"):
-            encounter.fhir_id = sync_result.get("fhir_id")
-            encounter.fhir_status = "synced"
+        if billing_result.get("success"):
+            encounter.invoice_id = billing_result.get("invoice_id")
+            encounter.billing_codes = billing_result.get("billing_codes", encounter.billing_codes)
+            encounter.billing_amount = billing_result.get("total_amount", 250.0) # Fallback to base fee
+            encounter.billing_currency = billing_result.get("currency", "INR")
         else:
+            # If billing service failed, at least set a base fee so it's not 0
+            encounter.billing_amount = encounter.billing_amount or 250.0
+        
+        # EHR Sync re-trigger
+        try:
+            from app.modules.automation.fhir_service import fhir_service
+            sync_result = await fhir_service.sync_encounter(encounter)
+            if sync_result.get("success"):
+                encounter.fhir_id = sync_result.get("fhir_id")
+                encounter.fhir_status = "synced"
+            else:
+                encounter.fhir_status = "failed"
+        except Exception as e:
+            logger.error(f"EHR manual re-sync error: {e}")
             encounter.fhir_status = "failed"
-    except Exception as e:
-        logger.error(f"EHR manual re-sync error: {e}")
-        encounter.fhir_status = "failed"
 
-    await encounter.save()
-    return {"status": "success", "message": "Clinician refinement saved & synced", "billing_codes": encounter.billing_codes}
+        await encounter.save()
+        return {
+            "status": "success", 
+            "message": "Clinician refinement saved & synced", 
+            "billing_codes": encounter.billing_codes,
+            "billing_amount": encounter.billing_amount,
+            "billing_currency": encounter.billing_currency,
+            "invoice_id": encounter.invoice_id
+        }
+    except Exception as e:
+        logger.error(f"Failed to update SOAP/Billing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 class PreciseScribeRequest(BaseModel):
     input_text: str
