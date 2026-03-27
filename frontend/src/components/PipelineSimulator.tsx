@@ -39,7 +39,7 @@ const PipelineSimulator: React.FC = () => {
                         disabled={loading}
                         className="btn btn-secondary h-14 min-w-[240px] rounded-full group bg-white text-zinc-950 font-bold border-none hover:bg-zinc-200"
                     >
-                        {loading ? 'Simulating Stream...' : 'Trigger Full Demo'}
+                        {loading ? 'Simulating Stream...' : 'Trigger Demo'}
                         <motion.span animate={{ x: loading ? 0 : [0, 4, 0] }} transition={{ repeat: Infinity }}>
                             <ChevronRight size={18} className="ml-2" />
                         </motion.span>

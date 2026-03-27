@@ -71,6 +71,7 @@ class AIFusion:
                     new_vision_indicators = res
                     # Store significant visual cues
                     if res.get("emotion") in ["Pain", "Anxious"]:
+                        if encounter.emotions is None: encounter.emotions = []
                         encounter.emotions.append({
                             "emotion": res["emotion"],
                             "confidence": res.get("emotion_confidence", 0.0),
@@ -119,6 +120,7 @@ class AIFusion:
         if assigned_role == "Patient":
             new_emotions = await medical_nlp_service.analyze_emotions(display_text, assigned_role)
             if new_emotions:
+                if encounter.emotions is None: encounter.emotions = []
                 encounter.emotions.extend(new_emotions)
 
         # 6. Vitals Simulation & Extraction
@@ -142,6 +144,7 @@ class AIFusion:
                 if key in encounter.vitals:
                     encounter.vitals[key]["value"] = str(val)
                     if not encounter.vitals[key].get("trend"): encounter.vitals[key]["trend"] = []
+                    if encounter.vitals[key]["trend"] is None: encounter.vitals[key]["trend"] = []
                     encounter.vitals[key]["trend"].append({"value": val, "timestamp": datetime.utcnow().isoformat()})
                     # Keep trend to last 20 points
                     encounter.vitals[key]["trend"] = encounter.vitals[key]["trend"][-20:]
@@ -157,6 +160,8 @@ class AIFusion:
                     # For numeric vitals, add to trend
                     try:
                         num_v = float(str(v).split('/')[0]) # Handle BP
+                        if not encounter.vitals[internal_key].get("trend"): encounter.vitals[internal_key]["trend"] = []
+                        if encounter.vitals[internal_key]["trend"] is None: encounter.vitals[internal_key]["trend"] = []
                         encounter.vitals[internal_key]["trend"].append({"value": num_v, "timestamp": datetime.utcnow().isoformat()})
                     except: pass
 
@@ -178,6 +183,7 @@ class AIFusion:
 
         # Persistence
         timestamp = datetime.utcnow().isoformat()
+        if encounter.transcript is None: encounter.transcript = []
         encounter.transcript.append({
             "speaker": assigned_role,
             "text": display_text,
@@ -584,6 +590,7 @@ class AIFusion:
             if current_speaker == "Unknown":
                 current_speaker = self._identify_role(text, "Unknown")
             
+            if encounter.transcript is None: encounter.transcript = []
             encounter.transcript.append({
                 "speaker": current_speaker,
                 "text": text,
