@@ -9,7 +9,7 @@ const PipelineSimulator: React.FC = () => {
     const runSimulation = async () => {
         setLoading(true);
         try {
-            const resp = await fetch('/api/simulate', { method: 'POST' });
+            const resp = await fetch('/api/v1/simulate', { method: 'POST' });
             const data = await resp.json();
             setResults(data.results);
         } catch (err) {

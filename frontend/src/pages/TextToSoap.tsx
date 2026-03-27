@@ -13,7 +13,7 @@ const TextToSoap: React.FC = () => {
         if (!text.trim()) return;
         setIsGenerating(true);
         try {
-            const resp = await fetch('/api/summary/text-to-soap', {
+            const resp = await fetch('/api/v1/summary/text-to-soap', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text, patient_id: patientId || "Anonymous" })

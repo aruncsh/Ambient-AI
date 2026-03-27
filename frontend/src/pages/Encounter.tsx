@@ -77,7 +77,7 @@ const Encounter: React.FC = () => {
         const fetchEncounter = async () => {
             if (!id) return;
             try {
-                const resp = await fetch(`/api/encounters/${id}`);
+                const resp = await fetch(`/api/v1/encounters/${id}`);
                 const data = await resp.json();
                 setConsentObtained(data.consent_obtained);
                 if (data.transcript) {
@@ -276,7 +276,7 @@ const Encounter: React.FC = () => {
                 const formData = new FormData();
                 formData.append('file', audioBlob, 'recording.webm');
 
-                await fetch(`/api/encounters/${id}/stop`, {
+                await fetch(`/api/v1/encounters/${id}/stop`, {
                     method: 'POST',
                     body: formData
                 });
@@ -293,7 +293,7 @@ const Encounter: React.FC = () => {
         if (!manualText.trim()) return;
         setIsGeneratingSoap(true);
         try {
-            const resp = await fetch('/api/summary/text-to-soap', {
+            const resp = await fetch('/api/v1/summary/text-to-soap', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: manualText, patient_id: id || "Anonymous" })

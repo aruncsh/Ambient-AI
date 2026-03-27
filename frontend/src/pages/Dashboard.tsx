@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, FileText, ChevronRight, Clock, User as UserIcon, Activity, ShieldCheck, Zap, Brain } from 'lucide-react';
+import { api } from '../lib/api';
 
 const Dashboard = () => {
   const [encounters, setEncounters] = useState<any[]>([]);
@@ -11,9 +12,13 @@ const Dashboard = () => {
   const fetchEncounters = async () => {
     try {
       setLoading(true);
-      const resp = await fetch('/api/encounters/');
-      const data = await resp.json();
-      setEncounters(data.slice(0, 5)); // Show only recent 5
+      const data = await api.getEncounters();
+      if (Array.isArray(data)) {
+        setEncounters(data.slice(0, 5)); // Show only recent 5
+      } else {
+        console.error("Received non-array data for encounters", data);
+        setEncounters([]);
+      }
     } catch (err) {
       console.error("Failed to fetch dashboard data", err);
     } finally {

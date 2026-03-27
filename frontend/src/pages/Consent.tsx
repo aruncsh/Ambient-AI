@@ -80,7 +80,7 @@ const Consent: React.FC = () => {
     const handleFinalize = async () => {
         try {
             // 1. Create Encounter first
-            const resp = await fetch('/api/encounters/', {
+            const resp = await fetch('/api/v1/encounters/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ patient_id: patientName, clinician_id: "Dr. Smith" })
@@ -97,7 +97,7 @@ const Consent: React.FC = () => {
             }
 
             if (consentData) {
-                await fetch(`/api/consent/${encounterId}`, {
+                await fetch(`/api/v1/consent/${encounterId}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ type: consentType, data: consentData })

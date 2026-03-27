@@ -40,13 +40,13 @@ const Review: React.FC = () => {
         const fetchSOAP = async () => {
             try {
                 // First, trigger generation to ensure we have the latest from the transcript
-                const genResp = await fetch(`/api/summary/${id}/generate`, {
+                const genResp = await fetch(`/api/v1/summary/${id}/generate`, {
                     method: 'POST'
                 });
                 const summaryData = await genResp.json();
                 
                 // Also fetch the full encounter for automation and EHR results
-                const encounterResp = await fetch(`/api/encounters/${id}`);
+                const encounterResp = await fetch(`/api/v1/encounters/${id}`);
                 const encounterData = await encounterResp.json();
                 
                 if (summaryData) {
@@ -136,7 +136,7 @@ const Review: React.FC = () => {
     const saveRefinement = async () => {
         setLoading(true);
         try {
-            const resp = await fetch(`/api/summary/${id}/update`, {
+            const resp = await fetch(`/api/v1/summary/${id}/update`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -342,7 +342,7 @@ const Review: React.FC = () => {
                                     <div className="flex justify-between items-center">
                                         <div className="text-[10px] uppercase font-bold text-zinc-500">E-Prescripts</div>
                                         <button 
-                                            onClick={() => window.open(`/api/encounters/${id}/prescription-pdf`, '_blank')}
+                                            onClick={() => window.open(`/api/v1/encounters/${id}/prescription-pdf`, '_blank')}
                                             className="flex items-center gap-1.5 text-[9px] font-bold text-indigo-400 hover:text-indigo-300 transition-all border border-indigo-500/20 px-2 py-1 rounded-md"
                                         >
                                             <Download size={12} /> PDF
@@ -399,7 +399,7 @@ const Review: React.FC = () => {
                             whileTap={{ scale: 0.97 }}
                             onClick={async () => {
                                 try {
-                                    await fetch(`/api/encounters/${id}/reset`, { method: 'POST' });
+                                    await fetch(`/api/v1/encounters/${id}/reset`, { method: 'POST' });
                                 } catch (e) {
                                     console.error("Reset failed:", e);
                                 }

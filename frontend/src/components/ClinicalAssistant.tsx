@@ -34,7 +34,7 @@ const ClinicalAssistant: React.FC<Props> = ({ transcript, isActive, insights = [
         const fullTranscript = transcript.map(t => `${t.speaker}: ${t.text}`).join('\n');
         setLoading(true);
         try {
-            const resp = await fetch('/api/ai/suggest', {
+            const resp = await fetch('/api/v1/ai/suggest', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ transcript: fullTranscript })

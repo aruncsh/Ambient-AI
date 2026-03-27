@@ -1,6 +1,13 @@
 {
   "source_directories": [
-     "backend",
-     "."
+    "backend"
+  ],
+  "search_path": [
+    "backend/venv/Lib/site-packages"
+  ],
+  "exclude": [
+    "**/node_modules/**",
+    "**/__pycache__/**",
+    "backend/venv/**"
   ]
 }

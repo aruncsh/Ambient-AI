@@ -38,7 +38,7 @@ const GeneralAIChat: React.FC = () => {
         setIsLoading(true);
 
         try {
-            const resp = await fetch('/api/ai/chat', {
+            const resp = await fetch('/api/v1/ai/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
