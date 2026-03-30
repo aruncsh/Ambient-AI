@@ -74,7 +74,8 @@ OUTPUT STRUCTURE (STRICT JSON)
       "blood_pressure": "",
       "heart_rate": "",
       "respiratory_rate": "",
-      "oxygen_saturation": ""
+      "oxygen_saturation": "",
+      "weight": ""
     },
     "physical_examination": {
       "general_appearance": "",
@@ -82,19 +83,20 @@ OUTPUT STRUCTURE (STRICT JSON)
       "respiratory": "",
       "abdominal": "",
       "neurological": "",
-      "musculoskeletal": ""
+      "musculoskeletal": "",
+      "eyes": ""
     }
   },
 
   "assessment": {
-    "primary_diagnosis": "",
+    "primary_diagnosis": "Clean diagnosis name for ICD-10 matching (e.g. 'Hypertension')",
     "icd10_code": "",
     "differential_diagnosis": [],
     "clinical_reasoning": ""
   },
 
   "plan": {
-    "medications": [],
+    "medications": ["List only actual prescribed drugs with dosage if mentioned"],
     "diagnostic_tests": [],
     "therapies": [],
     "lifestyle_modifications": [],
@@ -116,9 +118,9 @@ OUTPUT STRUCTURE (STRICT JSON)
   },
 
   "follow_up": {
-    "follow_up_timeline": "",
+    "follow_up_timeline": "", 
     "warning_signs": [],
-    "referrals": ""
+    "referrals": "Capture all specialist referrals. Format: 'Specialty (Doctor Name) if mentioned'. Example: 'Cardiologist (Dr. Mehta)'"
   },
 
   "billing": {
@@ -130,7 +132,7 @@ OUTPUT STRUCTURE (STRICT JSON)
   "extracted_entities": {
     "symptoms": [],
     "diagnoses": [
-        {"name": "Diagnosis Name", "icd10": "Code"}
+        {"name": "Clean name for matching", "icd10": "Code"}
     ],
     "medications": [],
     "tests": [],
@@ -147,61 +149,32 @@ EXTRACTION RULES (CRITICAL)
 SUBJECTIVE:
 - Only patient-reported information
 - Include symptoms, duration, severity, and complaints.
-- If a patient reports an allergy or a trigger (e.g., "when I eat seafood"), list the trigger in aggravating_factors.
 
 OBJECTIVE:
-- Only measurable data (vitals)
-- Only doctor-observed exam findings
+- Only measurable data (vitals) mentioned in the visit.
+- Physical examination section: Include explicit findings mentioned (e.g., 'Eyes: mild retinal changes').
 
 ASSESSMENT:
-- Must include clear diagnosis (NOT generic like "Acute condition under evaluation")
-- Provide the most accurate ICD-10-CM code for the primary diagnosis.
-- If symptoms point to an allergy, specify the allergic condition (e.g., "Seafood Allergy", "Allergic Dermatitis").
-- Must include reasoning based on symptoms + history.
+- **IMPORTANT**: Generate a CLEAN, CLINICAL diagnosis for the primary_diagnosis field. (e.g., 'Type-2 Diabetes', 'Hypertension'). 
+- DO NOT use long sentences like 'Uncontrolled hypertension' in the primary_diagnosis field as it breaks ICD-10 matching. Use 'Hypertension' and put 'uncontrolled' in clinical_reasoning.
 
 PLAN:
-- Only treatment actions (NOT past meds unless continued)
-- Include tests, medications (like antihistamines for allergies), and lifestyle advice (like avoidance).
-
-PATIENT HISTORY:
-- Extract ALL types:
-  - Past medical conditions
-  - Surgeries
-  - Family diseases
-  - Social habits (smoking, alcohol)
-  - Current medications
-  - **ALLERGIES**: Be extremely diligent. Extract food, drug, and environmental allergies.
+- **MEDICATIONS**: List ONLY new or continued medications. 
+- **STRICT EXCLUSION**: Do NOT include non-drug fragments like 'Room air', '15 years ago', 'nothing else', or referral descriptions in the medications list.
+- If no medications are mentioned, return [].
 
 FOLLOW UP:
-- Extract specific timeline (e.g., "return in 2 weeks" -> timeline: "2 weeks").
-- Extract emergency warning signs (e.g., anaphylaxis signs, chest pain, shortness of breath, high fever).
-- Extract any referrals to specialists, physical therapists, or other clinicians WITH the reason for referral.
-- ENSURE every instruction given by the doctor is captured in either the Plan or Follow Up sections.
-
-BILLING & CODING:
-- Identify appropriate CPT codes (99213, 99214, 99203, 99204, etc.) based on the complexity of the visit (new vs. established patient, number of problems addressed, data reviewed, and risk).
-- If additional procedures were performed (e.g., ECG 93000, Nebulizer 94640), include them too.
-- Provide a brief logical reasoning for each code based on CMS guidelines.
-- ALWAYS include at least one E/M (Evaluation & Management) office visit code.
-
-
-EXTRACTED ENTITIES:
-- Return clean lists for:
-  symptoms, diagnoses, medications, tests
+- **REFERRALS**: Be extremadamente diligent. If the doctor mentions a specialist name (e.g., Dr. Mehta) and specialty (Cardiologist), capture BOTH.
+- Capture the follow-up date explicitly (e.g., 20th April 2026).
 
 ---------------------------------------
 STRICT RULES
 ---------------------------------------
-- Output MUST be valid JSON
-- Output MUST be 100% in professional medical ENGLISH.
-- If the input transcript has generic labels (e.g., "Speaker 1", "Unknown"), you MUST re-attribute them to "Doctor" or "Patient" in the "clean_conversation" and SOAP sections based on the clinical context.
-- Translate any non-English speech (e.g., Tamil) into English.
-- NO MISSING INFORMATION: Every symptom, instruction, diagnosis, and vitals mentioned must be placed in its correct structural field.
-- Do NOT mix sections
-- Do NOT hallucinate
-- If not available → return empty "" or [] (BUT search diligently before giving up).
-- Keep clinical accuracy
-- Keep it concise but complete
+- NO HALLUCINATIONS: Do not invent symptoms or history not present in the text.
+- NO NOISE: Keep lists clean and relevant.
+- VALID JSON: Always return valid JSON.
+- ENGLISH: Output must be in medical English.
+
 
 
 ---------------------------------------
@@ -1025,14 +998,28 @@ class MedicalNLPService:
 
     async def extract_vitals_from_text(self, text: str) -> Dict:
         """
-        Extracts vitals from text using a fast LLM call.
+        Extracts vitals (temperature, blood pressure, heart rate, RR, SpO2) from visit transcript.
+        Ensures unrelated numbers (age, date) are NOT mis-identified as vitals.
         """
         if not text.strip():
             return {}
 
         prompt = f"""
-        Extract medical vitals from this text. 
-        Return ONLY a JSON object with keys: temp, bp, hr, rr, spo2, glucose.
+        Extract medical vitals mentioned in the following visit transcript.
+        Only extract numbers that ARE EXPLICITLY identified as vitals. 
+        DO NOT extract the patient's age (e.g., '62 years old' is NOT Temp: 62).
+        DO NOT extract dates or weights unless explicitly labeled as a vital.
+        
+        Return ONLY a JSON object with:
+        {{
+            "temp": "value with F or C if mentioned",
+            "bp": "value (e.g. 120/80)",
+            "hr": "value in bpm",
+            "rr": "breaths/min",
+            "spo2": "percentage",
+            "glucose": "mg/dL",
+            "weight": "kg or lbs"
+        }}
         Text: "{text}"
         """
         
@@ -1045,8 +1032,12 @@ class MedicalNLPService:
                     temperature=0.0
                 )
                 return json.loads(response.choices[0].message.content)
-        except:
-            pass
+            elif self.ollama_url:
+                # OLLAMA FALLBACK for vitals
+                response_text = await self._call_ollama(prompt, json_mode=True)
+                return json.loads(response_text)
+        except Exception as e:
+            logger.error(f"Vitals extraction error: {e}")
             
         return {}
 
