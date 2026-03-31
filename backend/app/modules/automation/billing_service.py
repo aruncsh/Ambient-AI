@@ -150,9 +150,17 @@ class BillingService:
                 is_high = any(k in transcript_lower for k in ["severe", "emergency", "acute", "hospital", "chest pain", "shortness of breath", "unconscious"])
                 is_moderate_chronic = any(k in transcript_lower for k in ["hypertension", "diabetes", "chronic", "follow up"])
                 
+                # Determine clinical substance
+                word_count = len(transcript_lower.split())
                 icd_count = len([c for c in codes if c["system"] == "ICD-10"])
-
-                if is_new:
+                
+                # Ethical Guardrail: Do not bill if no clinical content found and interaction is brief
+                is_non_clinical = "awaiting clinical data" in str(soap_note).lower() or word_count < 15
+                
+                if is_non_clinical and icd_count == 0:
+                    code, desc = "NONE", "Non-clinical interaction"
+                    codes = [c for c in codes if c["system"] != "CPT"] # Remove any CPTs
+                elif is_new:
                     if icd_count >= 2 or is_high:
                         code, desc = "99204", "Office visit, new patient, high complexity"
                     else:
@@ -163,19 +171,27 @@ class BillingService:
                         code, desc = "99215", "Office visit, established, high complexity"
                     elif icd_count >= 1 or is_moderate_chronic:
                         code, desc = "99214", "Office visit, established, moderate complexity"
-                    elif icd_count == 0:
-                        code, desc = "99212", "Office visit, established, minimal complexity"
                     else:
                         code, desc = "99212", "Office visit, established, minimal complexity"
-                if icd_count > 0 or is_new or is_high:
+                
+                if code != "NONE" and (icd_count > 0 or is_new or is_high):
                     codes.append({
                         "code": code, 
                         "description": desc, 
                         "system": "CPT",
                         "reasoning": f"Dynamic fallback based on {icd_count} diagnoses and complexity markers"
                     })
+                elif code == "NONE":
+                    # Non-billing event
+                    codes = [c for c in codes if c["system"] != "ICD-10"] # Remove hallucinated ICD-10s if any
+                    codes.append({
+                        "code": "N/A",
+                        "description": "No clinical billing for this interaction",
+                        "system": "CPT",
+                        "reasoning": "Transcript contains insufficient clinical data"
+                    })
                 else:
-                    # Truly unknown - don't guess 99213
+                    # Truly unknown
                     codes.append({
                         "code": "PENDING",
                         "description": "Complexity assessment pending",

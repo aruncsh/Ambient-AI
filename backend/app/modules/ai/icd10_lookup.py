@@ -3,6 +3,7 @@ import logging
 import os
 import csv
 from typing import List, Dict, Optional
+from functools import lru_cache
 from rapidfuzz import process, fuzz
 
 logger = logging.getLogger(__name__)
@@ -52,16 +53,59 @@ class ICD10LookupService:
         except Exception as e:
             logger.error(f"Error loading ICD-10 data: {e}")
 
+    def _preprocess_query(self, query: str) -> str:
+        """
+        Removes clinical noise and filler words that confuse fuzzy matching.
+        Prevents matching on generic terms that cause hallucinations (e.g. 'condition').
+        """
+        if not query: return ""
+        
+        # 1. Lowercase and strip
+        text = query.lower().strip()
+        
+        # 2. Remove common clinical "filler" phrases
+        fillers = [
+            r"history of", r"diagnosed with", r"possible", r"early", r"late", 
+            r"uncontrolled", r"controlled", r"mild", r"severe", r"acute", 
+            r"chronic", r"long-standing", r"type-2", r"type 2", r"type-1", r"type 1",
+            r"secondary to", r"due to", r"associated with", r"complicated by",
+            r"five years ago", r"ten days ago", r"recently", r"new onset",
+            r"primary", r"secondary", r"plus possible", r"early diabetic",
+            r"complications", r"evaluation", r"status post", r"s/p", r"and", r"with", r"plus",
+            r"under", r"over", r"within", r"between"
+        ]
+        
+        # Generic words that should NEVER be used for standalone matching
+        stop_words = {"condition", "interaction", "evaluation", "assessment", "complaint", "symptoms", "observed"}
+        
+        import re
+        for filler in fillers:
+            text = re.sub(rf"\b{filler}\b", "", text)
+        
+        # 3. Strip very short words (less than 3 chars) or stop words
+        words = text.split()
+        words = [w for w in words if len(w) >= 3 and w not in stop_words]
+        
+        if not words:
+            return ""
+            
+        text = " ".join(words)
+        
+        # 4. Clean up whitespace
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    @lru_cache(maxsize=1024)
     def lookup(self, query: str, limit: int = 5) -> List[Dict]:
         """
         Performs fuzzy matching on diagnosis descriptions and exact matching on codes.
+        Uses query pre-processing and a higher threshold (75) for better precision.
         """
         if not query or not self.codes:
             return []
 
+        # Exact match check BEFORE preprocessing
         query_clean = query.strip().upper()
-        
-        # 1. Check for exact code match
         if query_clean in self.code_map:
             item = self.code_map[query_clean]
             return [{
@@ -70,10 +114,14 @@ class ICD10LookupService:
                 "confidence": 1.0
             }]
 
-        # 2. Perform fuzzy matching on descriptions
-        # Note: rapidfuzz process.extract is fast even for 100k strings
+        # Preprocess for fuzzy matching
+        processed_query = self._preprocess_query(query)
+        if len(processed_query) < 4: # Too short or contains only stop words
+            return []
+
+        # Perform fuzzy matching on descriptions
         results = process.extract(
-            query, 
+            processed_query, 
             self.descriptions, 
             scorer=fuzz.WRatio, 
             limit=limit
@@ -81,9 +129,9 @@ class ICD10LookupService:
 
         matches = []
         for description, score, index in results:
-            if score > 45:  # Slightly higher threshold due to 100k data size
+            # INCREASED THRESHOLD: 75% match required for production-grade precision
+            if score > 75:  
                 item = self.codes[index]
-                # Avoid duplicate if it was somehow found
                 if not any(m["code"] == item["code"] for m in matches):
                     matches.append({
                         "code": item["code"],
@@ -91,7 +139,6 @@ class ICD10LookupService:
                         "confidence": round(score / 100, 2)
                     })
         
-        # Sort by confidence
         matches.sort(key=lambda x: x["confidence"], reverse=True)
         return matches[:limit]
 

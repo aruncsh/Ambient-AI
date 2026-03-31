@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import Dict, Any
 from app.models.encounter import Encounter, SOAPNote
 from app.models.soap_summary import SOAPSummary
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post("/{encounter_id}/generate")
-async def generate_soap(encounter_id: str):
+async def generate_soap(encounter_id: str, background_tasks: BackgroundTasks):
     try:
         from bson.objectid import ObjectId
         if not ObjectId.is_valid(encounter_id):
@@ -29,7 +29,7 @@ async def generate_soap(encounter_id: str):
         raise HTTPException(status_code=404, detail="Encounter not found")
         
     # Process the entire accumulated transcript to generate a real SOAP note
-    summary = await ai_fusion.generate_final_summary(encounter_id)
+    summary = await ai_fusion.generate_final_summary(encounter_id, background_tasks=background_tasks)
     return summary
 
 @router.get("/{encounter_id}")
@@ -43,9 +43,9 @@ class TextToSoapRequest(BaseModel):
     patient_id: str = "Anonymous"
 
 @router.post("/text-to-soap")
-async def text_to_soap(data: TextToSoapRequest):
+async def text_to_soap(data: TextToSoapRequest, background_tasks: BackgroundTasks):
     try:
-        summary = await ai_fusion.generate_summary_from_text(data.text, data.patient_id)
+        summary = await ai_fusion.generate_summary_from_text(data.text, data.patient_id, background_tasks=background_tasks)
         return summary
     except Exception as e:
         logger.error(f"Text-to-SOAP failure: {e}")
