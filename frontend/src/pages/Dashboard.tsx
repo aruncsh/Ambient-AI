@@ -84,11 +84,11 @@ const Dashboard = () => {
                 <div className="p-10 text-center text-zinc-500 font-medium">No recent encounters found.</div>
               ) : encounters.map((enc, idx) => (
                 <motion.div 
-                  key={enc.id} 
+                  key={enc.id || enc._id || idx} 
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.1 }}
-                  onClick={() => navigate(`/review/${enc.id}`)}
+                  onClick={() => navigate(`/review/${enc.id || enc._id}`)}
                   className="p-6 rounded-3xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.05] hover:border-indigo-500/30 cursor-pointer transition-all flex items-center justify-between group"
                 >
                   <div className="flex items-center gap-6">
@@ -104,12 +104,6 @@ const Dashboard = () => {
                           <div className={`w-1.5 h-1.5 rounded-full ${enc.status === 'active' ? 'bg-indigo-500 shadow-indigo-500/50 pulse' : 'bg-zinc-700'}`} />
                           {enc.status}
                         </span>
-                        {enc.billing_amount > 0 && (
-                          <>
-                            <span className="w-1 h-1 bg-zinc-800 rounded-full"></span>
-                            <span className="text-emerald-400 font-bold">₹{enc.billing_amount.toLocaleString()}</span>
-                          </>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -122,15 +116,10 @@ const Dashboard = () => {
           </div>
 
           <div className="grid grid-cols-2 gap-8">
-             <div className="glass-card p-10 bg-indigo-600/5 border-indigo-500/10">
+             <div className="glass-card p-10 bg-indigo-600/5 border-indigo-500/10 col-span-12">
                 <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-4">Patient Intelligence</h4>
                 <div className="text-3xl font-bold text-white">{completedEncounters}</div>
-                <div className="text-xs text-zinc-500 mt-2 font-medium">Encounters finalized recently</div>
-             </div>
-             <div className="glass-card p-10 bg-emerald-600/5 border-emerald-500/10">
-                <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-4">Revenue Pipeline</h4>
-                <div className="text-3xl font-bold text-white">₹{totalBillable.toLocaleString()}</div>
-                <div className="text-xs text-zinc-500 mt-2 font-medium">Potential billable revenue detected</div>
+                <div className="text-xs text-zinc-500 mt-2 font-medium">Encounters finalized successfully</div>
              </div>
           </div>
         </div>

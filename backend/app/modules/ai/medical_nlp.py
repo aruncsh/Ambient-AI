@@ -49,38 +49,50 @@ Output: [{"emotion": "Anxious", "confidence": 0.9, "indicators": ["really worrie
 PRECISE_SCRIBE_SYSTEM_PROMPT = """
 You are an advanced clinical AI scribe.
 
-Convert the given doctor–patient conversation into a COMPLETE structured medical record.
+Convert the given doctor–patient conversation into a COMPLETE structured medical record. 
+
+---------------------------------------
+GOAL:
+---------------------------------------
+Your task is to provide a 100% FAITHFUL and EXHAUSTIVE extraction of the encounter. 
+1. List the FULL conversation without summarizing a single turn.
+2. Extract EVERY clinical value, symptom, medication, and plan detail into the SOAP structure.
+3. DO NOT miss any data point mentioned.
+4. DO NOT suggest, assume, or add any information not present in the transcript.
 
 ---------------------------------------
 OUTPUT STRUCTURE (STRICT JSON)
 ---------------------------------------
 
 {
-  "clean_conversation": "<string>",
+  "clean_conversation": "A COMPLETE, UNBRIDGE-ABLE, and FAITHFUL record of the entire conversation. List every exchange. Only remove fillers like 'um', 'uh', 'hmm'. DO NOT summarize. Format: 'Doctor: [Text]' and 'Patient: [Text]'. Every single line from the transcript must be represented.",
   "subjective": {
-    "chief_complaint": "",
-    "history_of_present_illness": "",
-    "symptoms": [],
-    "duration": "",
-    "severity": "",
-    "associated_symptoms": [],
-    "aggravating_factors": [],
-    "relieving_factors": []
+    "chief_complaint": "The primary reason for the visit (use patient's exact words if available)",
+    "history_of_present_illness": "Detailed narrative of the current issue, including all onset, location, duration, and context details mentioned.",
+    "symptoms": ["Exhaustive list of ALL symptoms mentioned, no matter how minor"],
+    "duration": "Specific timeframes mentioned",
+    "severity": "Severity levels mentioned (e.g., 8/10, mild, severe)",
+    "associated_symptoms": ["Symptoms that occur together"],
+    "aggravating_factors": ["What makes it worse"],
+    "relieving_factors": ["What makes it better"]
   },
 
   "objective": {
     "vitals": {
-      "temperature": "",
-      "blood_pressure": "",
-      "heart_rate": "",
-      "respiratory_rate": "",
-      "oxygen_saturation": "",
-      "weight": ""
+      "temperature": "Exact value mentioned",
+      "blood_pressure": "Exact value mentioned (e.g. 120/80)",
+      "heart_rate": "Exact value mentioned",
+      "respiratory_rate": "Exact value mentioned",
+      "oxygen_saturation": "Exact value mentioned (e.g. 98%)",
+      "weight": "Exact value mentioned",
+      "height": "",
+      "bmi": "",
+      "blood_sugar": "Exact value mentioned (e.g. 140 mg/dL)"
     },
     "physical_examination": {
-      "general_appearance": "",
-      "cardiovascular": "",
-      "respiratory": "",
+      "general_appearance": "Document ALL physical observations mentioned by the doctor",
+      "cardiovascular": "Document all auscultation or rhythm findings mentioned",
+      "respiratory": "Document all lung sound findings mentioned (e.g. 'crackles in base')",
       "abdominal": "",
       "neurological": "",
       "musculoskeletal": "",
@@ -89,38 +101,38 @@ OUTPUT STRUCTURE (STRICT JSON)
   },
 
   "assessment": {
-    "primary_diagnosis": "Clean diagnosis name for ICD-10 matching (e.g. 'Hypertension')",
-    "icd10_code": "",
-    "differential_diagnosis": [],
-    "clinical_reasoning": ""
+    "primary_diagnosis": "The specific clinical diagnosis made or suspected",
+    "icd10_code": "Matching ICD-10 code",
+    "differential_diagnosis": ["All other possibilities mentioned"],
+    "clinical_reasoning": "The EXACT reasoning provided by the doctor in the conversation"
   },
 
   "plan": {
-    "medications": ["List only actual prescribed drugs with dosage if mentioned"],
-    "diagnostic_tests": [],
+    "medications": ["List EVERY medication with EXACT dosage, route, and frequency mentioned. DO NOT OMIT ANY."],
+    "diagnostic_tests": ["Labs, Imaging, or Scans ordered"],
     "therapies": [],
-    "lifestyle_modifications": [],
-    "precautions": []
+    "lifestyle_modifications": ["ALL advice given regarding diet, exercise, or habits"],
+    "precautions": ["ALL warning signs or activity restrictions mentioned"]
   },
 
   "patient_history": {
-    "past_medical_history": [],
+    "past_medical_history": ["ALL prior conditions mentioned by the patient or doctor"],
     "surgical_history": [],
-    "family_history": [],
+    "family_history": ["Signficant family medical history"],
     "social_history": {
       "smoking": "",
       "alcohol": "",
       "diet": "",
       "physical_activity": ""
     },
-    "medication_history": [],
-    "allergies": []
+    "medication_history": ["Existing medications the patient is ALREADY taking"],
+    "allergies": ["Document ALL drug and food allergies mentioned. If none, state 'None reported'."]
   },
 
   "follow_up": {
-    "follow_up_timeline": "", 
-    "warning_signs": [],
-    "referrals": "Capture all specialist referrals. Format: 'Specialty (Doctor Name) if mentioned'. Example: 'Cardiologist (Dr. Mehta)'"
+    "follow_up_timeline": "Specific date or timeframe (e.g., '2 weeks', 'next Tuesday')", 
+    "warning_signs": ["Specific symptoms requiring ER visit mentioned by doctor"],
+    "referrals": "Specialty and Doctor Name if mentioned"
   },
 
   "billing": {
@@ -131,52 +143,25 @@ OUTPUT STRUCTURE (STRICT JSON)
 
   "extracted_entities": {
     "symptoms": [],
-    "diagnoses": [
-        {"name": "Clean name for matching", "icd10": "Code"}
-    ],
+    "diagnoses": [{"name": "Name", "icd10": "Code"}],
     "medications": [],
     "tests": [],
-    "billing_codes": [
-        {"code": "CPT Code", "description": "Description"}
-    ]
+    "billing_codes": [{"code": "Code", "description": "Desc"}]
   }
 }
 
 ---------------------------------------
-EXTRACTION RULES (CRITICAL)
+STRICT EXTRACTION RULES (ZERO DATA LOSS)
 ---------------------------------------
 
-SUBJECTIVE:
-- Only patient-reported information
-- Include symptoms, duration, severity, and complaints.
-
-OBJECTIVE:
-- Extract ALL vitals verbatim from any line where the doctor reads them aloud.
-- CRITICAL: Populate blood_pressure (e.g. '152/96 mmHg'), heart_rate (e.g. '88 bpm'), temperature (e.g. '98.4 F'), respiratory_rate (e.g. '18/min'), oxygen_saturation (e.g. '96%'), weight (e.g. '82 kg'), and blood_sugar (e.g. '178 mg/dL') - do NOT leave these empty if values are stated.
-- Physical examination section: Include explicit findings mentioned (e.g., 'Eyes: mild retinal changes').
-
-ASSESSMENT:
-- **IMPORTANT**: Generate a CLEAN, CLINICAL diagnosis for the primary_diagnosis field. (e.g., 'Type-2 Diabetes', 'Hypertension'). 
-- DO NOT use long sentences like 'Uncontrolled hypertension' in the primary_diagnosis field as it breaks ICD-10 matching. Use 'Hypertension' and put 'uncontrolled' in clinical_reasoning.
-
-PLAN:
-- **MEDICATIONS**: List ONLY new or continued medications. 
-- **STRICT EXCLUSION**: Do NOT include non-drug fragments like 'Room air', '15 years ago', 'nothing else', or referral descriptions in the medications list.
-- If no medications are mentioned, return [].
-
-FOLLOW UP:
-- **REFERRALS**: Be extremadamente diligent. If the doctor mentions a specialist name (e.g., Dr. Mehta) and specialty (Cardiologist), capture BOTH.
-- Capture the follow-up date explicitly (e.g., 20th April 2026).
-
----------------------------------------
-STRICT RULES
----------------------------------------
-- NO HALLUCINATIONS: Do not invent symptoms or history not present in the text.
-- NO NOISE: Keep lists clean and relevant.
-- VALID JSON: Always return valid JSON.
-- ENGLISH: Output must be in medical English.
-
-
+1. TOTAL FIDELITY: Every clinical value, vitals, dosages, durations, and symptoms mentioned in the conversation MUST be extracted. 
+2. MEDICAL Q&A CAPTURE: If a doctor asks a medical question (e.g., "Do you have sugar/diabetes/allergies?") and the patient confirms or answers, this MUST be recorded in the relevant SOAP section with the duration/timeline.
+3. DURATION FIDELITY: For every finding or symptom, explicitly capture the "From when" (duration) detail if mentioned (e.g. "x5 days", "since 2010").
+4. NO SUMMARIZATION: The 'clean_conversation' field must contain the FULL dialogue. Representation of every exchange is mandatory.
+5. NO HALLUCINATIONS: Do not invent symptoms, history, or values not present in the transcript.
+6. NO GUESSING VITALS: If a vital (BP, HR, Temp, SpO2) is NOT explicitly mentioned, you MUST return an empty string "" for that field. NEVER guess or provide placeholder values.
+7. NO SUGGESTIONS: Do not add external recommendations or diagnoses not explicitly discussed.
+8. VALID JSON ONLY.
 
 ---------------------------------------
 INPUT:
@@ -267,7 +252,7 @@ class MedicalNLPService:
             try:
                 redacted_text = self._redact_pii(f"{speaker}: {raw_text}")
                 response = await self.client.chat.completions.create(
-                    model="gpt-4o-mini" if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
+                    model=settings.OPENAI_API_MODEL if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
                     messages=[
                         {"role": "system", "content": CLEAN_TRANSCRIPT_SYSTEM_PROMPT},
                         {"role": "user", "content": f"Clean this segment: {redacted_text}"}
@@ -437,7 +422,7 @@ class MedicalNLPService:
                 """
                 
                 response = await self.client.chat.completions.create(
-                    model="gpt-4o-mini" if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
+                    model=settings.OPENAI_API_MODEL if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
                     messages=[{"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
                     max_tokens=150,
@@ -560,6 +545,7 @@ class MedicalNLPService:
         clean_lines = []
         follow_up_timeline = "As needed"
         warning_signs = []
+        allergies = []
         last_role = "Doctor"
 
         # ── Vital-sign patterns (spoken English aware) ────────────────────────────
@@ -796,6 +782,17 @@ class MedicalNLPService:
                     if ws.lower() in content_lower and ws not in warning_signs:
                         warning_signs.append(ws)
 
+            # ── 11. Allergies ─────────────────────────────────────────────────────
+            if "allerg" in content_lower:
+                allergy_pat = r"(?:allergy|allergic)\s+(?:to|is)?\s*([A-Za-z][A-Za-z\s]{2,30})"
+                for m in re.finditer(allergy_pat, content_lower):
+                    alg = m.group(1).strip().rstrip("., ")
+                    if alg and alg not in allergies and not any(k in alg for k in ["no ", "none", "not "]):
+                        allergies.append(alg.capitalize())
+                if any(k in content_lower for k in ["no allergies", "no known drug allergies", "nkda"]):
+                    if "No known drug allergies" not in allergies:
+                        allergies.append("No known drug allergies")
+
         # ── Post-processing ───────────────────────────────────────────────────────
         full_text = transcript.lower()
         extracted_symptoms = sorted(list(set(
@@ -888,7 +885,7 @@ class MedicalNLPService:
                     "physical_activity": "No exertion advised" if "no exertion" in full_text else "Not documented"
                 },
                 "medication_history": medications[:],
-                "allergies": []
+                "allergies": allergies if allergies else ["None reported"]
             },
             "objective": {
                 "vitals": {
@@ -979,7 +976,7 @@ class MedicalNLPService:
         try:
             if self.client:
                 response = await self.client.chat.completions.create(
-                    model="gpt-4o-mini" if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
+                    model=settings.OPENAI_API_MODEL if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
                     messages=[
                         {"role": "system", "content": "You are a professional medical scribe. Your output must be a valid, dense JSON object suitable for an EHR system."},
                         {"role": "user", "content": prompt}
@@ -1106,7 +1103,7 @@ class MedicalNLPService:
         try:
             if self.client:
                 response = await self.client.chat.completions.create(
-                    model="gpt-4o-mini" if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
+                    model=settings.OPENAI_API_MODEL if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
                     messages=[
                         {"role": "system", "content": PRECISE_SCRIBE_SYSTEM_PROMPT},
                         {"role": "user", "content": f"INPUT:\n{full_input}"}
@@ -1199,7 +1196,7 @@ class MedicalNLPService:
         if self.client:
             try:
                 response = await self.client.chat.completions.create(
-                    model="llama-3.1-70b-versatile" if settings.GROQ_API_KEY else "gpt-4o-mini",
+                    model="llama-3.1-70b-versatile" if settings.GROQ_API_KEY else settings.OPENAI_API_MODEL,
                     messages=[
                         {"role": "system", "content": EMOTION_ANALYSIS_SYSTEM_PROMPT},
                         {"role": "user", "content": text}
@@ -1249,7 +1246,7 @@ class MedicalNLPService:
         try:
             if self.client:
                 response = await self.client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=settings.OPENAI_API_MODEL,
                     messages=[{"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
                     temperature=0.0
@@ -1284,7 +1281,7 @@ class MedicalNLPService:
         try:
             if self.client:
                 response = await self.client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=settings.OPENAI_API_MODEL,
                     messages=[{"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
                     temperature=0.0
@@ -1341,6 +1338,51 @@ class MedicalNLPService:
         
         return {}
 
+    async def identify_transcript_roles(self, raw_transcript: str) -> str:
+        """
+        Takes a transcript with generic labels (Speaker 1, Speaker 2, etc.) 
+        and uses the LLM to identify the clinical roles based on context.
+        """
+        if not raw_transcript.strip():
+            return ""
+
+        prompt = f"""
+        You are a highly skilled clinical transcriptionist. Analyze the following medical encounter transcript which has generic speaker labels (e.g., 'Speaker 1:', 'Speaker 2:').
+        
+        YOUR TASK:
+        1. Identify the clinical roles for EACH speaker. One MUST be 'Doctor' and the other MUST be 'Patient'.
+        2. Correct all labels to 'Doctor:' and 'Patient:' throughout the entire transcript.
+        3. TOTAL FIDELITY: Ensure EVERY WORD and FACT is preserved exactly as spoken. 
+        4. NO SUMMARIZATION: Do not omit lines. Do not shorten turns. Do not merge exchanges.
+        5. Use context clues like who is asking questions, who is describing symptoms, and who is giving medical advice.
+        
+        OUTPUT FORMAT:
+        'Doctor: [Text]'
+        'Patient: [Text]'
+        (Return the FULL transcript, line by line, in the original order)
+        
+        TRANSCRIPT:
+        {raw_transcript}
+        """
+
+        try:
+            if self.client:
+                response = await self.client.chat.completions.create(
+                    model=settings.OPENAI_API_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are a medical transcriptionist specialized in role identification."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.0
+                )
+                return response.choices[0].message.content.strip()
+            elif self.ollama_url:
+                return await self._call_ollama(prompt)
+        except Exception as e:
+            logger.error(f"Role identification error: {e}")
+        
+        return raw_transcript
+
     async def combined_chunk_analysis(self, text: str, speaker: str) -> Dict:
         """
         Performs multiple analyses (Cleaning, Emotions, Vitals, SOAP Section) in a single LLM call.
@@ -1353,6 +1395,8 @@ class MedicalNLPService:
         Analyze this medical conversation segment and return a JSON object.
         Segment: {speaker}: {text}
         
+        STRICT RULE: ONLY include values in "vitals" if they ARE EXPLICITLY SPOKEN in the segment. Otherwise, return empty strings (""). NEVER GUESS OR INVENT NUMBERS.
+
         RETURN ONLY JSON:
         {{
           "cleaned_text": "Professional medical version of the segment",
@@ -1367,7 +1411,7 @@ class MedicalNLPService:
         try:
             if self.client:
                 response = await self.client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model=settings.OPENAI_API_MODEL,
                     messages=[{"role": "user", "content": prompt}],
                     response_format={"type": "json_object"},
                     max_tokens=300,

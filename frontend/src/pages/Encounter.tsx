@@ -95,23 +95,44 @@ const Encounter: React.FC = () => {
         fetchEncounter();
     }, [id]);
 
-    const startEncounter = async () => {
+    const startEncounter = async (retryCount = 0) => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: true, 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: false, // Turn off browser noise prep to let Whisper handle it
+                    autoGainControl: true
+                }, 
                 video: !privacyMode 
             });
             if (videoRef.current) videoRef.current.srcObject = stream;
             
-            // Connect WebSocket
-            const socket = new WebSocket(`ws://${window.location.hostname}:8001/ws/${id}`);
+            // Connect WebSocket with Reconnection Logic
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const socket = new WebSocket(`${protocol}//${window.location.hostname}:8001/ws/${id}`);
             socketRef.current = socket;
+            
+            let chunkCount = 0;
+
+            socket.onopen = () => {
+                console.log("[WS] Connected to Ambient Backend");
+                setIsActive(true);
+            };
+
+            socket.onclose = () => {
+                console.warn("[WS] Disconnected. Attempting to preserve recording...");
+                // If the encounter is still active, try to reconnect
+                if (isActive && retryCount < 5) {
+                    setTimeout(() => startEncounter(retryCount + 1), 2000);
+                }
+            };
+
+            socket.onerror = (err) => console.error("[WS] Error:", err);
             
             socket.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 if (data.error) {
-                    alert(data.error);
-                    stopEncounter();
+                    console.error("[WS] Server Error:", data.error);
                     return;
                 }
                 
@@ -132,95 +153,51 @@ const Encounter: React.FC = () => {
                 }
 
                 if (data.vitals) setVitals(data.vitals);
-                if (data.emotions && data.emotions.length > 0) {
-                    // Filter out duplicates and keep it clean
-                    setEmotions(prev => {
-                        const newEmos = [...prev];
-                        data.emotions.forEach((e: any) => {
-                            if (!newEmos.find(existing => existing.timestamp === e.timestamp)) {
-                                newEmos.push(e);
-                            }
-                        });
-                        return newEmos.slice(-10);
-                    });
-                }
-                if (data.nlp_insights) {
-                    setInsights(prev => [...prev, ...data.nlp_insights]);
-                }
+                if (data.nlp_insights) setInsights(prev => [...prev, ...data.nlp_insights]);
             };
 
-            const getSupportedMimeType = () => {
-                const types = [
-                    'audio/webm;codecs=opus',
-                    'audio/webm',
-                    'audio/ogg;codecs=opus',
-                    'audio/mp4',
-                    'audio/aac'
-                ];
-                for (const t of types) {
-                    if (MediaRecorder.isTypeSupported(t)) return t;
-                }
-                return null;
-            };
-
-            const mimeType = getSupportedMimeType();
-            console.log("Attempting MediaRecorder with MimeType:", mimeType);
+            const mimeType = 'audio/webm;codecs=opus';
             
-            if (stream.getAudioTracks().length === 0) {
-                throw new Error("No audio tracks found in stream. Please check your microphone.");
-            }
-
             // ISOLATE AUDIO TRACK FOR AI PROCESSING
             const audioStream = new MediaStream([stream.getAudioTracks()[0]]);
 
-            let mediaRecorder: MediaRecorder;
-            try {
-                mediaRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : {});
-            } catch (e) {
-                console.warn("MediaRecorder constructor failed with mimeType, falling back to default:", e);
-                mediaRecorder = new MediaRecorder(audioStream);
-            }
-            
+            const mediaRecorder = new MediaRecorder(audioStream, { mimeType });
             mediaRecorderRef.current = mediaRecorder;
             
             mediaRecorder.ondataavailable = async (e) => {
-                if (e.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        const base64 = (reader.result as string).split(',')[1];
-                        socket.send(JSON.stringify({ type: 'audio', data: base64 }));
-                    };
-                    reader.readAsDataURL(e.data);
+                if (e.data.size > 0) {
                     audioChunksRef.current.push(e.data);
+                    
+                    if (socket.readyState === WebSocket.OPEN) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const base64 = (reader.result as string).split(',')[1];
+                            socket.send(JSON.stringify({ type: 'audio', data: base64 }));
+                            chunkCount++;
+                            console.log(`[VOICE] Chunk #${chunkCount} sent (${Math.round(e.data.size/1024)}KB)`);
+                        };
+                        reader.readAsDataURL(e.data);
+                    } else {
+                        console.warn("[VOICE] Socket not open, buffering chunk locally...");
+                    }
+                }
+            };
+
+            mediaRecorder.onstop = () => {
+                console.log("[VOICE] MediaRecorder stopped.");
+            };
+
+            mediaRecorder.onerror = (err) => {
+                console.error("[VOICE] MediaRecorder Error:", err);
+                if (isActive) {
+                    console.log("[VOICE] Attempting to restart recorder...");
+                    mediaRecorder.start(10000);
                 }
             };
 
             // Start recording in 10s slices
-            const startRecording = () => {
-                try {
-                    console.log("Track state:", audioStream.getAudioTracks()[0]?.readyState);
-                    if (mediaRecorder.state === "inactive" && audioStream.active) {
-                        mediaRecorder.start(10000);
-                        setIsActive(true);
-                        console.log("MediaRecorder started successfully with timeslice");
-                    }
-                } catch (startErr: any) {
-                    console.error("MediaRecorder.start(10000) failed:", startErr);
-                    try {
-                        if (mediaRecorder.state === "inactive") {
-                            mediaRecorder.start();
-                            setIsActive(true);
-                            console.log("MediaRecorder started successfully (no timeslice)");
-                        }
-                    } catch (lastErr: any) {
-                        console.error("Critical: All MediaRecorder.start() attempts failed:", lastErr);
-                        throw lastErr;
-                    }
-                }
-            };
-
-            // Small delay to ensure stream stabilization
-            setTimeout(startRecording, 500);
+            mediaRecorder.start(10000);
+            console.log("[VOICE] Started recording with 10s slices");
 
         } catch (err: any) {
             console.error("Critical: Could not initialize ambient capture:", err);
@@ -342,7 +319,7 @@ const Encounter: React.FC = () => {
                                 <FileText size={18} /> {showManualInput ? 'Live Capture' : 'Manual Entry'}
                             </button>
                             <button 
-                                onClick={startEncounter} 
+                                onClick={() => startEncounter()} 
                                 className="btn btn-primary h-14 px-12 text-base rounded-full"
                             >
                                 <Play size={18} fill="currentColor" /> Start Live Encounter

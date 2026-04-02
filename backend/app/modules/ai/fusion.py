@@ -61,82 +61,30 @@ class AIFusion:
                 
             pcm_data = decode_to_pcm(audio_chunk, str(encounter.id))
 
-        # 1.5. Visual Analysis (New Feature A)
+        # 1.5. Visual Analysis (DISABLED FOR PRIVACY)
         new_vision_indicators = {}
-        if video_frame:
-            try:
-                # Use MediaPipe logic through VisionAI or directly
-                res = await media_pipe_service.analyze_frame(video_frame)
-                if res and "error" not in res:
-                    new_vision_indicators = res
-                    # Store significant visual cues
-                    if res.get("emotion") in ["Pain", "Anxious"]:
-                        if encounter.emotions is None: encounter.emotions = []
-                        encounter.emotions.append({
-                            "emotion": res["emotion"],
-                            "confidence": res.get("emotion_confidence", 0.0),
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "type": "visual"
-                        })
-            except Exception as e:
-                logger.error(f"Vision analysis failed: {e}")
-
-        # 2. VAD-based Speaker Toggling
-        assigned_role = diarization_service.update_speaker_toggle(pcm_data)
+        
+        # 2. VAD-based Speaker Toggling (DISABLED)
+        assigned_role = "Doctor"
 
         # 3. Live Transcription
         if not live:
-            await encounter.save()
-            return {"status": "listening"}
+             await encounter.save()
+             return {"status": "listening"}
 
         if not audio_chunk:
-            # RETURN LIVE UPDATES (Vision/Vitals) IF NO NEW AUDIO
-            await encounter.save()
-            return {
-                "emotions": encounter.emotions[-5:],
-                "vitals": encounter.vitals,
-                "status": "active"
-            }
+             return {"status": "active", "vitals": encounter.vitals}
 
         raw_text = await whisper_service.transcribe(audio_chunk, str(encounter.id))
         if not raw_text.strip():
-             await encounter.save()
              return {"status": "active", "vitals": encounter.vitals}
 
-        # 4. Consolidated AI Insights (Performance Optimization)
-        # Replacing 5+ separate LLM calls with 1 single call to reduce latency by ~80%
+        # 4. Consolidated AI Insights
         ai_insights = await medical_nlp_service.combined_chunk_analysis(raw_text, assigned_role)
         
         display_text = ai_insights.get("cleaned_text", raw_text)
-        llm_role = ai_insights.get("detected_role", assigned_role)
-        if llm_role in ["Doctor", "Patient"]:
-            assigned_role = llm_role
 
-        # 5. Update Emotions
-        new_emotions = ai_insights.get("emotions", [])
-        if new_emotions:
-            if encounter.emotions is None: encounter.emotions = []
-            encounter.emotions.extend(new_emotions)
-
-        # 6. Vitals Extraction (from AI) and Simulation (from IoT)
-        if not iot_data:
-            current_vitals = encounter.vitals or {}
-            simulated = {}
-            def drift(val, min_v, max_v, step=1):
-                try:
-                    v = float(val) if val else (min_v + max_v) / 2
-                    v += random.uniform(-step, step)
-                    return round(max(min(v, max_v), min_v), 1)
-                except: return val
-            simulated["heart_rate"] = drift(current_vitals.get("heart_rate", {}).get("value"), 60, 100, 2)
-            simulated["oxygen_saturation"] = drift(current_vitals.get("oxygen_saturation", {}).get("value"), 95, 100, 0.5)
-            for key, val in simulated.items():
-                if key in encounter.vitals:
-                    encounter.vitals[key]["value"] = str(val)
-                    if not encounter.vitals[key].get("trend"): encounter.vitals[key]["trend"] = []
-                    encounter.vitals[key]["trend"].append({"value": val, "timestamp": datetime.utcnow().isoformat()})
-                    encounter.vitals[key]["trend"] = encounter.vitals[key]["trend"][-20:]
-
+        # 5. Vitals Extraction (STRICT CONVERSATIONAL ONLY - NO SIMULATION)
         extracted_vitals = ai_insights.get("vitals", {})
         if extracted_vitals:
             mapping = {"temp": "temperature", "bp": "blood_pressure", "hr": "heart_rate", "rr": "respiratory_rate", "spo2": "oxygen_saturation"}
@@ -292,34 +240,46 @@ class AIFusion:
                 last_role = "Doctor" # Initial assumption for stateful tracking
                 
                 for seg in segments:
-                    # Role identification using diarization service per segment
-                    # 1. Slice the audio chunk for this specific segment (16kHz, 16bit = 32000 bytes/sec)
+                    # Generic placeholder ID based on diarization
                     try:
                         start_byte = int(seg["start"] * 32000)
                         end_byte = int(seg["end"] * 32000)
                         segment_audio = raw_audio[start_byte:end_byte]
-                        
-                        # 2. Get speaker embedding identity
                         speaker_id = await diarization_service.get_speaker_id(segment_audio)
-                        
-                        # 3. Map Speaker ID to clinical role (Doctor/Patient)
-                        role = diarization_service.get_role(speaker_id)
-                        if not role:
-                            role = self._identify_role(seg["text"], speaker_id, last_role)
-                            diarization_service.assign_role(speaker_id, role)
-                    except Exception as diar_err:
-                        logger.error(f"Segment diarization error: {diar_err}")
-                        role = "Patient" if last_role == "Doctor" else "Doctor"
-                    
-                    if role == "Unknown":
-                        role = "Patient" if last_role == "Doctor" else "Doctor"
+                    except:
+                        # Fallback to alternate labels if embedding fails
+                        speaker_id = f"Speaker {1 if i % 2 == 0 else 2}"
                     
                     processed_transcript.append({
-                        "speaker": role,
+                        "speaker": speaker_id,
                         "text": seg["text"],
                         "timestamp": (encounter.created_at + timedelta(seconds=seg["start"])).isoformat() if encounter.created_at else datetime.utcnow().isoformat()
                     })
-                    last_role = role
+                    
+                # ── GLOBAL ROLE IDENTIFICATION (NEW SUPERIOR LOGIC) ───────────────────────
+                # Instead of heuristic-guessing per segment, we send the whole transcript
+                # to the LLM to identify 'Doctor' and 'Patient' roles precisely.
+                try:
+                    raw_text_transcript = "\n".join([f"{t['speaker']}: {t['text']}" for t in processed_transcript])
+                    identified_transcript = await medical_nlp_service.identify_transcript_roles(raw_text_transcript)
+                    
+                    if identified_transcript:
+                        # Parse the LLM output back into the transcript list
+                        llm_lines = identified_transcript.split('\n')
+                        for i, line in enumerate(llm_lines):
+                            if i < len(processed_transcript):
+                                import re
+                                role_match = re.match(r"^(Doctor|Patient):\s*(.*)", line, re.I)
+                                if role_match:
+                                    processed_transcript[i]["speaker"] = role_match.group(1).capitalize()
+                                    # Update text too in case LLM cleaned it
+                                    processed_transcript[i]["text"] = role_match.group(2).strip()
+                except Exception as id_err:
+                    logger.error(f"Global role identification failed: {id_err}")
+                    # Fallback to simple alternating if identification fails
+                    for i, t in enumerate(processed_transcript):
+                        if "Speaker" in t["speaker"]:
+                            t["speaker"] = "Doctor" if i % 2 == 0 else "Patient"
             except Exception as e:
                 logger.error(f"Diarization failure: {e}")
                 # Fallback: Just use the raw segments with alternating "Doctor"/"Patient"
@@ -437,23 +397,15 @@ class AIFusion:
         try:
             # 1. Map SOAP Sections with fallbacks to ensure no info is missing
             encounter.soap_note = SOAPNote(
-                subjective=soap_data.get("subjective") if isinstance(soap_data.get("subjective"), dict) else {"history_of_present_illness": str(soap_data.get("subjective") or "")},
-                patient_history=soap_data.get("patient_history") if isinstance(soap_data.get("patient_history"), dict) else {"past_medical_history": [str(soap_data.get("patient_history") or "")]},
-                objective=soap_data.get("objective") if isinstance(soap_data.get("objective"), dict) else {"physical_examination": {"general_appearance": str(soap_data.get("objective") or "")}},
-                assessment=soap_data.get("assessment") if isinstance(soap_data.get("assessment"), dict) else {"primary_diagnosis": str(soap_data.get("assessment") or "")},
-                plan=soap_data.get("plan") if isinstance(soap_data.get("plan"), dict) else {"lifestyle_modifications": [str(soap_data.get("plan") or "")]},
-                clean_transcript=clinical_info.get("clean_conversation", ""),
-                
-                # Full mapping for follow-up and referrals (as requested)
-                follow_up={
-                    "follow_up_timeline": clinical_info.get("follow_ups", {}).get("follow_up_timeline") if isinstance(clinical_info.get("follow_ups"), dict) else str(clinical_info.get("follow_ups") or "None"),
-                    "warning_signs": clinical_info.get("follow_ups", {}).get("warning_signs", []) if isinstance(clinical_info.get("follow_ups"), dict) else [],
-                    "referrals": clinical_info.get("referrals", "None")
-                },
-                raw_transcript=full_transcript,
-                extracted_symptoms=clinical_info.get("extracted_symptoms", []),
-                extracted_diagnosis=clinical_info.get("extracted_diagnosis", []),
+                subjective=soap_data.get("subjective", {}),
+                patient_history=soap_data.get("patient_history", {}),
+                objective=soap_data.get("objective", {}),
+                assessment=soap_data.get("assessment", {}),
+                plan=soap_data.get("plan", {}),
+                follow_up=soap_data.get("follow_up", {}),
                 billing=clinical_info.get("billing", {}),
+                clean_transcript=clinical_info.get("clean_conversation", ""),
+                raw_transcript=full_transcript,
                 generated_at=datetime.utcnow()
             )
         except Exception as e:

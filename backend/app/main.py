@@ -8,6 +8,9 @@ from app.core.retention import retention_worker
 from contextlib import asynccontextmanager
 import asyncio
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -83,7 +86,11 @@ async def encounter_ws(websocket: WebSocket, encounter_id: str):
     try:
         while True:
             # Receive JSON message
-            message = await websocket.receive_json()
+            try:
+                message = await websocket.receive_json()
+            except:
+                break # Connection closed or invalid JSON from client
+                
             msg_type = message.get("type")
             payload = message.get("data")
             
@@ -97,16 +104,20 @@ async def encounter_ws(websocket: WebSocket, encounter_id: str):
                 print(f"Base64 decode error: {e}")
                 continue
 
-            # Process based on type
-            if msg_type == "audio":
-                result = await ai_fusion.process_encounter_stream(encounter_id, audio_chunk=raw_data, live=True)
-                await websocket.send_text(json.dumps(result))
-            elif msg_type == "video":
-                result = await ai_fusion.process_encounter_stream(encounter_id, video_frame=raw_data, live=True)
-                await websocket.send_text(json.dumps(result))
+            # Process based on type (with per-chunk error protection)
+            try:
+                if msg_type == "audio":
+                    result = await ai_fusion.process_encounter_stream(encounter_id, audio_chunk=raw_data, live=True)
+                    await websocket.send_text(json.dumps(result))
+                elif msg_type == "video":
+                    result = await ai_fusion.process_encounter_stream(encounter_id, video_frame=raw_data, live=True)
+                    await websocket.send_text(json.dumps(result))
+            except Exception as chunk_err:
+                logger.error(f"Error processing {msg_type} chunk: {chunk_err}")
+                await websocket.send_text(json.dumps({"status": "processing_error", "error": str(chunk_err)}))
             
     except Exception as e:
-        print(f"WS Error: {e}")
+        logger.error(f"Global WS Error: {e}")
     finally:
         try:
             await websocket.close()

@@ -109,10 +109,11 @@ async def update_soap(encounter_id: str, request_data: Dict):
             logger.error(f"EHR manual re-sync error: {e}")
             encounter.fhir_status = "failed"
 
+        encounter.status = "completed"
         await encounter.save()
         return {
             "status": "success", 
-            "message": "Clinician refinement saved & synced", 
+            "message": "Encounter signed and archived", 
             "billing_codes": encounter.billing_codes,
             "billing_amount": encounter.billing_amount,
             "billing_currency": encounter.billing_currency,

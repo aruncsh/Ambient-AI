@@ -67,9 +67,8 @@ def suppress_noise(audio_data: bytes, sample_rate: int = 16000) -> bytes:
         # 1. High-pass filter
         audio = highpass_filter(audio, 80, sample_rate)
 
-        # 2. Simple Spectral Gating (more stable)
         max_abs = np.max(np.abs(audio))
-        if max_abs < 100: # Silence threshold
+        if max_abs < 1: # Ultra-low silence threshold
              return b"\x00" * len(audio_data)
              
         threshold = 0.05 * max_abs

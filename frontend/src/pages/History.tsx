@@ -26,11 +26,13 @@ const History = () => {
     fetchEncounters();
   }, []);
 
-  const filteredEncounters = encounters.filter(enc => 
-    enc.patient_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    enc.patient_id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    enc.status?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredEncounters = encounters
+    .filter(enc => 
+      enc.patient_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      enc.patient_id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      enc.status?.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   return (
     <motion.div 
@@ -66,11 +68,10 @@ const History = () => {
 
       <div className="glass-card p-0 overflow-hidden border-white/5 bg-zinc-950/20">
         <div className="grid grid-cols-12 gap-0 border-b border-white/5 px-8 py-5">
-           <div className="col-span-3 text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Patient Identity</div>
+           <div className="col-span-4 text-[10px] font-bold text-zinc-600 uppercase tracking-widest">Patient Identity</div>
            <div className="col-span-3 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Outcome / Status</div>
            <div className="col-span-2 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Timestamp</div>
-           <div className="col-span-2 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Bill Amount</div>
-           <div className="col-span-1 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Status</div>
+           <div className="col-span-2 text-[10px] font-bold text-zinc-600 uppercase tracking-widest text-center">Status</div>
            <div className="col-span-1"></div>
         </div>
 
@@ -85,10 +86,10 @@ const History = () => {
                initial={{ opacity: 0, y: 5 }}
                animate={{ opacity: 1, y: 0 }}
                transition={{ delay: idx * 0.05 }}
-               onClick={() => navigate(`/review/${item.id}`)}
+               onClick={() => navigate(`/review/${item.id || item._id}`)}
                className="grid grid-cols-12 gap-0 px-8 py-8 items-center hover:bg-white/[0.02] cursor-pointer transition-colors group"
              >
-                <div className="col-span-3 flex items-center gap-5">
+                <div className="col-span-4 flex items-center gap-5">
                    <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-500 group-hover:text-indigo-400 transition-colors">
                       <FileText size={20} />
                    </div>
@@ -99,18 +100,13 @@ const History = () => {
                     {item.status === 'completed' ? 'SOAP Generated' : 'Active Session'}
                    </span>
                 </div>
-                <div className="col-span-2 text-center">
+                <div className="col-span-2 text-center text-zinc-500">
                    <div className="flex flex-col items-center gap-1">
-                      <span className="text-xs font-bold text-white">{new Date(item.created_at).toLocaleDateString()}</span>
-                      <span className="text-[10px] text-zinc-600 font-medium">{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="text-xs font-bold text-white/50">{new Date(item.created_at).toLocaleDateString()}</span>
+                      <span className="text-[10px] uppercase font-bold tracking-tighter opacity-70 border-t border-white/5 pt-1 mt-1">{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                    </div>
                 </div>
                 <div className="col-span-2 text-center">
-                   <span className="text-sm font-bold text-emerald-400">
-                    {item.billing_amount > 0 ? `₹${item.billing_amount.toLocaleString()}` : '--'}
-                   </span>
-                </div>
-                <div className="col-span-1 text-center">
                    <span className={`px-2 py-1 rounded-full border text-[8px] font-bold uppercase tracking-widest ${
                      item.status === 'completed' 
                      ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-400' 

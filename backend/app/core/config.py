@@ -23,8 +23,9 @@ class Settings(BaseSettings):
     
     # External API Keys (Optional)
     OPENAI_API_KEY: Optional[str] = None
+    OPENAI_API_MODEL: str = "gpt-3.5-turbo"
     GROQ_API_KEY: Optional[str] = None
-    OLLAMA_URL: str = "http://localhost:11434"
+    OLLAMA_URL: Optional[str] = None
     OLLAMA_MODEL: str = "llama3.2:latest"
     TWILIO_SID: Optional[str] = None
     TWILIO_TOKEN: Optional[str] = None

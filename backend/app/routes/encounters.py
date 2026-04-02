@@ -12,7 +12,7 @@ router = APIRouter()
 
 @router.get("/")
 async def list_encounters():
-    return await Encounter.find_all().to_list()
+    return await Encounter.find_all().sort("-created_at").to_list()
 
 @router.get("/{encounter_id}")
 async def get_encounter(encounter_id: str):

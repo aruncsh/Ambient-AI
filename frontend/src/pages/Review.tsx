@@ -10,13 +10,13 @@ const Review: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const [soap, setSoap] = useState({
-        subjective: "",
-        patient_history: "",
-        objective: "",
-        assessment: "",
-        plan: "",
-        referrals: "",
-        follow_ups: "",
+        subjective: "" as any,
+        patient_history: "" as any,
+        objective: "" as any,
+        assessment: "" as any,
+        plan: "" as any,
+        follow_up: "" as any,
+        billing: "" as any,
         clean_transcript: ""
     });
 
@@ -39,48 +39,93 @@ const Review: React.FC = () => {
     useEffect(() => {
         const fetchSOAP = async () => {
             try {
-                // First, trigger generation to ensure we have the latest from the transcript
-                const genResp = await fetch(`/api/v1/summary/${id}/generate`, {
-                    method: 'POST'
-                });
-                const summaryData = await genResp.json();
-                
-                // Also fetch the full encounter for automation and EHR results
+                // 0. Fetch the encounter first to see its status and saved results
                 const encounterResp = await fetch(`/api/v1/encounters/${id}`);
                 const encounterData = await encounterResp.json();
-                
-                if (summaryData) {
-                    const soapNote = summaryData.soap || summaryData;
+
+                // 1. If SOAP already exists in the database, use it immediately (preserving manual edits)
+                if (encounterData && encounterData.soap_note) {
+                    const sn = encounterData.soap_note;
                     setSoap({
-                        subjective: soapNote.subjective || "",
-                        patient_history: soapNote.patient_history || "",
-                        objective: soapNote.objective || "",
-                        assessment: soapNote.assessment || "",
-                        plan: soapNote.plan || "",
-                        referrals: soapNote.follow_up?.referrals || soapNote.referrals || "",
-                        follow_ups: soapNote.follow_up 
-                            ? `${soapNote.follow_up.follow_up_timeline || 'As needed'}\n\nWarning Signs: ${soapNote.follow_up.warning_signs?.join(', ') || 'None'}`
-                            : soapNote.follow_ups || "",
-                        clean_transcript: soapNote.clean_transcript || ""
+                        subjective: sn.subjective || "",
+                        patient_history: sn.patient_history || "",
+                        objective: sn.objective || "",
+                        assessment: sn.assessment || "",
+                        plan: sn.plan || "",
+                        follow_up: sn.follow_up || "",
+                        billing: sn.billing || "",
+                        clean_transcript: sn.clean_transcript || ""
                     });
-                }
-                
-                if (encounterData) {
+                    
                     setAutomation({
-                        lab_orders: encounterData.lab_orders || summaryData.lab_orders || [],
-                        prescriptions: encounterData.prescriptions || summaryData.prescriptions || [],
-                        billing_codes: encounterData.billing_codes || summaryData.billing_codes || [],
+                        lab_orders: encounterData.lab_orders || [],
+                        prescriptions: encounterData.prescriptions || [],
+                        billing_codes: encounterData.billing_codes || [],
                         patient_name: encounterData.patient_name || "Anonymous",
-                        invoice_id: encounterData.invoice_id || summaryData.invoice_id || "",
-                        billing_amount: (encounterData.billing_amount !== undefined && encounterData.billing_amount !== null) ? encounterData.billing_amount : (summaryData.billing_amount || 0),
-                        billing_currency: encounterData.billing_currency || summaryData.currency || "INR",
-                        fhir_id: encounterData.fhir_id || summaryData.fhir_id || "",
-                        fhir_status: encounterData.fhir_status || summaryData.fhir_status || "pending"
+                        invoice_id: encounterData.invoice_id || "",
+                        billing_amount: encounterData.billing_amount || 0,
+                        billing_currency: encounterData.billing_currency || "INR",
+                        fhir_id: encounterData.fhir_id || "",
+                        fhir_status: encounterData.fhir_status || (encounterData.status === 'completed' ? 'synced' : 'pending')
                     });
+                    setTranscript(encounterData.transcript || []);
+                    setLoading(false);
+                    return;
                 }
-                
-                if (encounterData && encounterData.transcript) {
-                    setTranscript(encounterData.transcript);
+
+                // 2. Otherwise, trigger generation if needed (polling loop)
+                let attempts = 0;
+                let dataProcessed = false;
+
+                while (attempts < 10 && !dataProcessed) {
+                    const genResp = await fetch(`/api/v1/summary/${id}/generate`, {
+                        method: 'POST'
+                    });
+                    const summaryData = await genResp.json();
+
+                    if (summaryData && summaryData.status === 'processing') {
+                        setLoading(true);
+                        attempts++;
+                        await new Promise(r => setTimeout(r, 4000));
+                        continue;
+                    }
+
+                    dataProcessed = true;
+
+                    const encounterResp = await fetch(`/api/v1/encounters/${id}`);
+                    const encounterData = await encounterResp.json();
+
+                    if (summaryData) {
+                        const soapNote = summaryData.soap || summaryData;
+                        setSoap({
+                            subjective: soapNote.subjective || "",
+                            patient_history: soapNote.patient_history || "",
+                            objective: soapNote.objective || "",
+                            assessment: soapNote.assessment || "",
+                            plan: soapNote.plan || "",
+                            follow_up: soapNote.follow_up || "",
+                            billing: soapNote.billing || "",
+                            clean_transcript: soapNote.clean_transcript || ""
+                        });
+                    }
+
+                    if (encounterData) {
+                        setAutomation({
+                            lab_orders: encounterData.lab_orders || summaryData.lab_orders || [],
+                            prescriptions: encounterData.prescriptions || summaryData.prescriptions || [],
+                            billing_codes: encounterData.billing_codes || summaryData.billing_codes || [],
+                            patient_name: encounterData.patient_name || "Anonymous",
+                            invoice_id: encounterData.invoice_id || summaryData.invoice_id || "",
+                            billing_amount: (encounterData.billing_amount !== undefined && encounterData.billing_amount !== null) ? encounterData.billing_amount : (summaryData.billing_amount || 0),
+                            billing_currency: encounterData.billing_currency || summaryData.currency || "INR",
+                            fhir_id: encounterData.fhir_id || summaryData.fhir_id || "",
+                            fhir_status: encounterData.fhir_status || summaryData.fhir_status || "pending"
+                        });
+
+                        if (encounterData.transcript) {
+                            setTranscript(encounterData.transcript);
+                        }
+                    }
                 }
             } catch (err) {
                 console.error("Failed to fetch SOAP:", err);
@@ -89,19 +134,18 @@ const Review: React.FC = () => {
             }
         };
 
-        if (id && id !== 'demo' && id !== 'new') {
+        if (id && id !== 'demo' && id !== 'new' && id !== 'undefined' && !id.includes('undefined')) {
             fetchSOAP();
-        } else {
-            // Fallback for demo mode if no real ID or if ID is "new"
+        } else if (id === 'demo' || id === 'new') {
             setSoap({
                 subjective: "This is a demo subjective note. In a real session, your spoken words would appear here.",
-                patient_history: "No history for demo. This section captures past medical records.",
+                patient_history: "No history for demo.",
                 objective: "Vitals: Heart Rate 72 BPM, SpO2 98%, BP 120/80.",
                 assessment: "General evaluation (Demo).",
                 plan: "Continue routine care.",
-                referrals: "None for demo.",
-                follow_ups: "1 week follow-up.",
-                clean_transcript: "Demo: Hello, how are you? Patient: I am fine, thank you."
+                follow_up: { follow_up_timeline: "1 week", warning_signs: ["Severe pain", "Fever"], referrals: "None" },
+                billing: { cpt_codes: [] },
+                clean_transcript: "Doctor: Hello, how are you? Patient: I am fine, thank you."
             });
             setLoading(false);
         }
@@ -188,22 +232,17 @@ const Review: React.FC = () => {
                     <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-500 uppercase tracking-[0.2em]">
                          <FileCheck size={14} /> Review Required
                     </div>
-                    <h1 className="text-5xl font-bold tracking-tight text-white">Clinical Notes Review</h1>
-                    <div className="flex items-center gap-4 text-zinc-500 text-sm font-medium">
-                        <span className="bg-white/5 px-2 py-0.5 rounded text-[10px] uppercase font-bold text-zinc-400">
-                            {id || 'PENDING'}
-                        </span>
-                        <span className="w-1 h-1 rounded-full bg-zinc-700" />
-                        <span>Jane Doe</span>
-                        {loading && (
-                            <motion.span 
-                                animate={{ opacity: [0.3, 1, 0.3] }} 
-                                transition={{ repeat: Infinity, duration: 1.5 }}
-                                className="text-indigo-400 text-[10px] font-bold uppercase ml-4"
-                            >
-                                Generating Real SOAP...
-                            </motion.span>
-                        )}
+                    <div className="flex items-end gap-4">
+                        <h1 className="text-5xl font-bold tracking-tight text-white line-clamp-1">Clinical Review</h1>
+                        <div className="flex flex-col mb-1 min-w-[200px]">
+                            <span className="text-[9px] font-bold text-zinc-600 uppercase mb-1">Patient Name</span>
+                            <input 
+                                type="text"
+                                value={automation.patient_name}
+                                onChange={(e) => setAutomation({...automation, patient_name: e.target.value})}
+                                className="bg-white/5 border-none text-zinc-400 text-sm font-medium focus:ring-1 focus:ring-indigo-500/30 rounded px-2 py-0.5"
+                            />
+                        </div>
                     </div>
                 </div>
                 
@@ -229,7 +268,7 @@ const Review: React.FC = () => {
             <div className="grid grid-cols-12 gap-12">
                 {/* Clean SOAP Sections */}
                 <div className="col-span-12 lg:col-span-8 space-y-8">
-                    {/* Cleaned NLP Conversation Section */}
+                    {/* Cleaned NLP Conversation Section (Now Editable) */}
                     {soap.clean_transcript && (
                         <motion.div 
                             initial={{ opacity: 0, y: 10 }}
@@ -240,13 +279,15 @@ const Review: React.FC = () => {
                                 <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-500">
                                     Cleaned NLP Conversation
                                 </h3>
-                                <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-400">
-                                    <Sparkles size={12} /> Step 1: Noise & Filler Removal
+                                <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-500">
+                                    <Sparkles size={12} className="text-indigo-400" /> Click to Edit
                                 </div>
                             </div>
-                            <div className="text-xl leading-relaxed text-zinc-200 font-medium whitespace-pre-wrap">
-                                {soap.clean_transcript}
-                            </div>
+                            <textarea 
+                                value={soap.clean_transcript} 
+                                onChange={(e) => setSoap({...soap, clean_transcript: e.target.value})}
+                                className="w-full min-h-[250px] bg-transparent border-0 text-xl leading-relaxed text-zinc-200 focus:ring-0 resize-none p-0 font-medium"
+                            />
                         </motion.div>
                     )}
 
@@ -313,7 +354,7 @@ const Review: React.FC = () => {
                             )}
                             {automation.billing_codes.length > 0 && (
                                 <div className="space-y-2">
-                                    <div className="text-[10px] uppercase font-bold text-zinc-500">Codes & Billing</div>
+                                    <div className="text-[10px] uppercase font-bold text-zinc-500">Clinical CPT Codes</div>
                                     <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-xs text-emerald-400 flex flex-wrap gap-2">
                                         {automation.billing_codes.map((c: any, i: number) => (
                                             <span 
@@ -324,16 +365,6 @@ const Review: React.FC = () => {
                                                 {typeof c === 'object' ? (typeof c.code === 'object' ? (c.code.code || JSON.stringify(c.code)) : String(c.code)) : String(c)}
                                             </span>
                                         ))}
-                                        {automation.invoice_id && (
-                                            <div className="w-full mt-2 pt-2 border-t border-emerald-500/10 flex justify-between items-center">
-                                                <div className="text-[9px] text-emerald-600 uppercase font-bold tracking-wider">ID: {automation.invoice_id}</div>
-                                                <div className="text-xs font-black text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded flex items-baseline gap-1">
-                                                    <span className="text-[10px] opacity-60">₹</span>
-                                                    {automation.billing_amount !== undefined ? automation.billing_amount.toLocaleString() : '0'}
-                                                    <span className="text-[8px] opacity-60 ml-0.5">{automation.billing_currency || 'INR'}</span>
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             )}

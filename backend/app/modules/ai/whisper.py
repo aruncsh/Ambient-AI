@@ -43,14 +43,50 @@ class WhisperService:
 
     async def transcribe(self, audio_data: bytes, encounter_id: str = "default", provider: Optional[str] = None) -> str:
         """
-        Transcribes audio data using Faster-Whisper with Noise Suppression.
-        Falls back to mock provider if local model is unavailable.
+        Transcribes audio data using OpenAI API or Faster-Whisper.
         """
         if provider is None:
-            provider = settings.WHISPER_PROVIDER
+            provider = settings.WHISPER_PROVIDER or "openai"
+            
         if provider == "mock":
             return "Mock: The patient is reporting symptoms."
             
+        if provider == "openai" and settings.OPENAI_API_KEY:
+            try:
+                import httpx
+                # Save to a small buffer-like temp file for OpenAI
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                    tmp.write(audio_data)
+                    tmp_path = tmp.name
+                
+                try:
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        with open(tmp_path, "rb") as f:
+                            # Frontend sends WebM from MediaRecorder
+                            files = {"file": ("audio.webm", f, "audio/webm")}
+                            data = {
+                                "model": "whisper-1",
+                                "language": "en",
+                                "prompt": "Medical consultation context. High accuracy required."
+                            }
+                            headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}"}
+                            
+                            response = await client.post(
+                                "https://api.openai.com/v1/audio/transcriptions",
+                                headers=headers,
+                                files=files,
+                                data=data
+                            )
+                            response.raise_for_status()
+                            text = response.json().get("text", "")
+                            return text.strip()
+                finally:
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+            except Exception as e:
+                logger.error(f"OpenAI Whisper API error: {e}. Falling back to local.")
+                provider = "local"
+
         if provider == "local":
             tmp_path = None
             try:
@@ -65,7 +101,6 @@ class WhisperService:
                 cleaned_pcm = suppress_noise(pcm_audio)
                 
                 # 2. Convert to stable WAV for Faster-Whisper
-                # Note: Whisper only accepts 16k Mono PCM 16-bit
                 cleaned_segment = AudioSegment(
                     data=cleaned_pcm,
                     sample_width=2,
@@ -106,8 +141,6 @@ class WhisperService:
                     result = " ".join(full_text).strip()
                     return result
 
-                # Loop.run_in_executor returns a Future which, when awaited, returns the result of the function.
-                # Pyre sometimes loses track of the return type.
                 from typing import cast
                 text = cast(str, await loop.run_in_executor(None, process_audio, model))
                 
@@ -139,12 +172,50 @@ class WhisperService:
                 return ""
 
         return ""
-
     async def transcribe_file(self, file_path: str) -> List[Dict]:
         """
         Transcribes a full audio file and returns segments.
-        Robustly handles missing or corrupted files.
         """
+        if settings.WHISPER_PROVIDER == "openai" and settings.OPENAI_API_KEY:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=180.0) as client:
+                    with open(file_path, "rb") as f:
+                        fname = os.path.basename(file_path)
+                        mtype = "audio/wav"
+                        if fname.endswith(".webm"): mtype = "audio/webm"
+                        elif fname.endswith(".mp3"): mtype = "audio/mpeg"
+                        
+                        files = {"file": (fname, f, mtype)}
+                        data = {
+                            "model": "whisper-1",
+                            "response_format": "verbose_json",
+                            "language": "en",
+                        }
+                        headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}"}
+                        
+                        response = await client.post(
+                            "https://api.openai.com/v1/audio/transcriptions",
+                            headers=headers,
+                            files=files,
+                            data=data
+                        )
+                        response.raise_for_status()
+                        result_json = response.json()
+                        
+                        # Map verbose_json segments to our segment format
+                        segments = []
+                        for s in result_json.get("segments", []):
+                            segments.append({
+                                "start": s.get("start", 0.0),
+                                "end": s.get("end", 0.0),
+                                "text": s.get("text", "").strip(),
+                                "speaker": "Unknown"
+                            })
+                        return segments
+            except Exception as e:
+                logger.error(f"OpenAI File Transcription Error: {e}, falling back to local.")
+        
         try:
             if not os.path.exists(file_path) or os.path.getsize(file_path) < 100:
                 logger.warning(f"Audio file {file_path} is too small or missing, skipping transcription.")
@@ -157,7 +228,6 @@ class WhisperService:
             loop = asyncio.get_event_loop()
             
             def process(m):
-                # Whisper模型的transcribe方法如果遇到极短或无效的音频可能会报错
                 try:
                     segments, info = m.transcribe(
                         file_path,
@@ -172,7 +242,7 @@ class WhisperService:
                             "start": segment.start,
                             "end": segment.end,
                             "text": segment.text.strip(),
-                            "speaker": "Unknown" # To be filled by diarization
+                            "speaker": "Unknown" 
                         })
                     return results
                 except Exception as e:
