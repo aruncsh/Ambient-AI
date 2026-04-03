@@ -10,6 +10,18 @@ if not hasattr(torchaudio, "list_audio_backends"):
     torchaudio.list_audio_backends = lambda: []
 
 from typing import List, Dict, Optional
+import huggingface_hub
+
+# SpeechBrain compatibility patch for newer huggingface_hub
+_original_hf_hub_download = huggingface_hub.hf_hub_download
+
+def patched_hf_hub_download(*args, **kwargs):
+    if "use_auth_token" in kwargs:
+        kwargs["token"] = kwargs.pop("use_auth_token")
+    return _original_hf_hub_download(*args, **kwargs)
+
+huggingface_hub.hf_hub_download = patched_hf_hub_download
+
 from speechbrain.inference.speaker import EncoderClassifier
 
 logger = logging.getLogger(__name__)

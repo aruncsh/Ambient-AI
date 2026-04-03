@@ -137,6 +137,13 @@ class AIFusion:
         encounter.updated_at = datetime.utcnow()
         await encounter.save()
 
+        # Update indicators
+        soap_update = {
+            "section": soap_section,
+            "cleaned_text": soap_content
+        } if soap_section != "none" else None
+        new_emotions = [] # Placeholder for now as it's disabled for privacy
+
         return {
             "speaker": assigned_role,
             "transcript": display_text,
@@ -260,20 +267,33 @@ class AIFusion:
                 # Instead of heuristic-guessing per segment, we send the whole transcript
                 # to the LLM to identify 'Doctor' and 'Patient' roles precisely.
                 try:
+                    import re
                     raw_text_transcript = "\n".join([f"{t['speaker']}: {t['text']}" for t in processed_transcript])
                     identified_transcript = await medical_nlp_service.identify_transcript_roles(raw_text_transcript)
                     
                     if identified_transcript:
-                        # Parse the LLM output back into the transcript list
-                        llm_lines = identified_transcript.split('\n')
-                        for i, line in enumerate(llm_lines):
-                            if i < len(processed_transcript):
-                                import re
+                        # SUPERIOR ROBUST PARSING: Only update lines that match the role structure
+                        llm_lines = [l.strip() for l in identified_transcript.split('\n') if re.match(r"^(Doctor|Patient):", l.strip(), re.I)]
+                        
+                        # If LLM returned exactly what we expected, map it. 
+                        # Otherwise use a heuristic to avoid breaking the sequence.
+                        if len(llm_lines) == len(processed_transcript):
+                            for i, line in enumerate(llm_lines):
                                 role_match = re.match(r"^(Doctor|Patient):\s*(.*)", line, re.I)
                                 if role_match:
                                     processed_transcript[i]["speaker"] = role_match.group(1).capitalize()
-                                    # Update text too in case LLM cleaned it
                                     processed_transcript[i]["text"] = role_match.group(2).strip()
+                        else:
+                            logger.warning(f"LLM Role ID line mismatch: expected {len(processed_transcript)}, got {len(llm_lines)}. Falling back to greedy matching.")
+                            target_ptr = 0
+                            for line in llm_lines:
+                                if target_ptr < len(processed_transcript):
+                                    role_match = re.match(r"^(Doctor|Patient):\s*(.*)", line, re.I)
+                                    if role_match:
+                                        processed_transcript[target_ptr]["speaker"] = role_match.group(1).capitalize()
+                                        # Only update text if it's very similar to avoid losing data
+                                        # processed_transcript[target_ptr]["text"] = role_match.group(2).strip()
+                                        target_ptr += 1
                 except Exception as id_err:
                     logger.error(f"Global role identification failed: {id_err}")
                     # Fallback to simple alternating if identification fails
@@ -281,14 +301,15 @@ class AIFusion:
                         if "Speaker" in t["speaker"]:
                             t["speaker"] = "Doctor" if i % 2 == 0 else "Patient"
             except Exception as e:
-                logger.error(f"Diarization failure: {e}")
+                logger.error(f"Diarization sequence failure: {e}")
                 # Fallback: Just use the raw segments with alternating "Doctor"/"Patient"
-                for i, seg in enumerate(segments):
-                    processed_transcript.append({
-                        "speaker": "Doctor" if i % 2 == 0 else "Patient",
-                        "text": seg["text"],
-                        "timestamp": (encounter.created_at + timedelta(seconds=seg["start"])).isoformat() if encounter.created_at else datetime.utcnow().isoformat()
-                    })
+                if not processed_transcript:
+                    for i, seg in enumerate(segments):
+                        processed_transcript.append({
+                            "speaker": "Doctor" if i % 2 == 0 else "Patient",
+                            "text": seg["text"],
+                            "timestamp": (encounter.created_at + timedelta(seconds=seg["start"])).isoformat() if encounter.created_at else datetime.utcnow().isoformat()
+                        })
     
             # 3. Save Final Transcript
             encounter.transcript = processed_transcript
@@ -406,6 +427,9 @@ class AIFusion:
                 billing=clinical_info.get("billing", {}),
                 clean_transcript=clinical_info.get("clean_conversation", ""),
                 raw_transcript=full_transcript,
+                extracted_diagnosis=soap_data.get("extracted_diagnosis", []),
+                extracted_symptoms=soap_data.get("extracted_symptoms", []),
+                extracted_vitals=clinical_info.get("soap", {}).get("objective", {}).get("vitals", {}),
                 generated_at=datetime.utcnow()
             )
         except Exception as e:
@@ -484,6 +508,18 @@ class AIFusion:
                 encounter.billing_codes = billing_result.get("billing_codes", [])
                 encounter.billing_amount = billing_result.get("total_amount")
                 encounter.billing_currency = billing_result.get("currency", "INR")
+                # Also sync back to the SOAP note for UI consistency
+                if encounter.soap_note:
+                    current_soap_billing = encounter.soap_note.billing or {}
+                    if isinstance(current_soap_billing, str): current_soap_billing = {} # Recover from previous stringification
+                    
+                    if not current_soap_billing.get("cpt_codes") or not any(c.get("code") for c in current_soap_billing.get("cpt_codes", [])):
+                        encounter.soap_note.billing = {
+                            "cpt_codes": [
+                                {"code": c.get("code"), "description": c.get("description"), "reasoning": c.get("reasoning")}
+                                for c in encounter.billing_codes if c.get("system") == "CPT"
+                            ]
+                        }
             else:
                 encounter.billing_amount = encounter.billing_amount or 250.0
 
@@ -673,8 +709,8 @@ class AIFusion:
         if encounter.transcript:
             await self.generate_final_summary(encounter_id)
         
-        # 5. Final Save
-        await encounter.save()
+        # 5. Final Reload (to return the fully populated object including SOAP)
+        await encounter.sync()
         return encounter
 
 ai_fusion = AIFusion()

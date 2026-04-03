@@ -152,26 +152,45 @@ const Review: React.FC = () => {
     }, [id]);
 
     const formatSoapValue = (val: any): string => {
-        if (!val) return "";
+        if (val === null || val === undefined) return "";
         if (typeof val === 'string') return val;
         if (Array.isArray(val)) {
             return val.map(item => {
                 if (typeof item === 'object' && item !== null) {
-                    return item.code || item.name || JSON.stringify(item);
+                    const extracted = item.code || item.name || item.medication || item.test_name;
+                    if (extracted) return extracted;
+                    if (Object.values(item).some(v => v !== "" && v !== null && v !== undefined)) return JSON.stringify(item);
+                    return null;
                 }
                 return String(item);
-            }).join("\n");
+            }).filter(Boolean).join("\n");
         }
         if (typeof val === 'object') {
             return Object.entries(val)
                 .map(([k, v]) => {
                     const label = k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                    if (Array.isArray(v)) return `${label}: ${v.join(", ")}`;
-                    if (typeof v === 'object' && v !== null) {
-                        return `${label}:\n  ` + Object.entries(v).map(([sk, sv]) => `${sk.replace(/_/g, ' ').toUpperCase()}: ${sv}`).join("\n  ");
+                    if (Array.isArray(v)) {
+                        const items = v.map(item => {
+                            if (typeof item === 'object' && item !== null) {
+                                const extracted = item.code || item.name || item.medication || item.test_name;
+                                if (extracted) return extracted;
+                                if (Object.values(item).some(val => val !== "" && val !== null && val !== undefined)) return JSON.stringify(item);
+                                return null;
+                            }
+                            return String(item);
+                        }).filter(Boolean).join(", ");
+                        return items ? `${label}: ${items}` : null;
                     }
-                    return `${label}: ${v}`;
+                    if (typeof v === 'object' && v !== null) {
+                        const subItems = Object.entries(v).map(([sk, sv]) => {
+                            const subLabel = sk.replace(/_/g, ' ').toUpperCase();
+                            return `${subLabel}: ${typeof sv === 'object' ? JSON.stringify(sv) : sv}`;
+                        }).filter(Boolean).join("\n  ");
+                        return subItems ? `${label}:\n  ` + subItems : null;
+                    }
+                    return v ? `${label}: ${v}` : null;
                 })
+                .filter(Boolean)
                 .join("\n\n");
         }
         return String(val);
@@ -345,9 +364,10 @@ const Review: React.FC = () => {
                             {automation.lab_orders.length > 0 && (
                                 <div className="space-y-2">
                                     <div className="text-[10px] uppercase font-bold text-zinc-500">Lab Orders</div>
-                                    {automation.lab_orders.map(o => (
-                                        <div key={o} className="p-3 rounded-xl bg-white/5 border border-white/5 text-xs text-zinc-300 flex items-center gap-2">
-                                            <div className="w-1 h-1 rounded-full bg-indigo-500" /> {o}
+                                    {automation.lab_orders.map((o: any, i: number) => (
+                                        <div key={i} className="p-3 rounded-xl bg-white/5 border border-white/5 text-xs text-zinc-300 flex items-center gap-2">
+                                            <div className="w-1 h-1 rounded-full bg-indigo-500" /> 
+                                            {typeof o === 'object' ? (o.test_name || JSON.stringify(o)) : String(o)}
                                         </div>
                                     ))}
                                 </div>

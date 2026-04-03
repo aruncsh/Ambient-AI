@@ -551,8 +551,8 @@ class MedicalNLPService:
         # ── Vital-sign patterns (spoken English aware) ────────────────────────────
         vital_patterns = {
             "blood_pressure": [
-                r"blood pressure[^\d]*(\d{2,3})\s*(?:over|/|-)\s*(\d{2,3})",
-                r"\bbp[^\d]*(\d{2,3})\s*(?:over|/|-)\s*(\d{2,3})",
+                r"blood pressure[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
+                r"\bbp[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
             ],
             "heart_rate": [
                 r"(?:pulse|heart rate|hr)[^\d]*(\d{2,3})\s*(?:beats? per minute|bpm|/min)?",
@@ -561,7 +561,7 @@ class MedicalNLPService:
                 r"(?:respiratory rate|respiration)[^\d]*(\d{1,3})\s*(?:breaths?|/min)?",
             ],
             "oxygen_saturation": [
-                r"(?:oxygen saturation|spo\s*2|o2\s*sat(?:uration)?|saturation)[^\d]*(\d{2,3})\s*%?",
+                r"(?:oxygen saturation|spo\s*2?|o2\s*sat(?:uration)?|saturation)[^\d]*(\d{2,3})\s*%?",
             ],
             "blood_sugar": [
                 r"(?:random blood sugar|blood sugar|glucose|rbs|fbs)[^\d]*(\d{2,4})\s*(?:mg[/.]?dl|mg%|mmol)?",
@@ -633,7 +633,10 @@ class MedicalNLPService:
                     m = re.search(pat, content_lower)
                     if m:
                         if vkey == "blood_pressure":
-                            vitals[vkey] = f"{m.group(1)}/{m.group(2)} mmHg"
+                            systolic = m.group(1)
+                            diastolic = m.group(2) if len(m.groups()) > 1 else None
+                            vitals[vkey] = f"{systolic}/{diastolic}" if diastolic else systolic
+                            if "mm" not in vitals[vkey]: vitals[vkey] += " mmHg"
                         else:
                             val = m.group(1)
                             if vkey == "heart_rate":
@@ -1022,8 +1025,12 @@ class MedicalNLPService:
         full_input = f"{redacted_input}\n{vitals_context}\n{visual_context}"
 
         def ensure_dict(val):
+            """Robust dict utility: ensures value is a dictionary for the model."""
             if isinstance(val, dict):
                 return val
+            if isinstance(val, str) and val.strip():
+                # If it's a string, we wrap it into a meaningful key instead of wiping it
+                return {"note": val.strip()}
             return {}
 
         def _extract_vitals_regex(text: str) -> dict:
@@ -1032,8 +1039,8 @@ class MedicalNLPService:
             vitals = {}
             patterns = {
                 "blood_pressure": [
-                    r"blood pressure[^\d]*(\d{2,3})\s*(?:over|/|-)\s*(\d{2,3})",
-                    r"\bbp[^\d]*(\d{2,3})\s*(?:over|/|-)\s*(\d{2,3})",
+                    r"blood pressure[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
+                    r"\bbp[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
                 ],
                 "heart_rate": [
                     r"(?:pulse|heart rate|hr)[^\d]*(\d{2,3})\s*(?:beats? per minute|bpm|/min)?",
@@ -1042,7 +1049,7 @@ class MedicalNLPService:
                     r"(?:respiratory rate|respiration)[^\d]*(\d{1,3})\s*(?:breaths?|/min)?",
                 ],
                 "oxygen_saturation": [
-                    r"(?:oxygen saturation|spo\s*2|o2\s*sat(?:uration)?|saturation)[^\d]*(\d{2,3})\s*%?",
+                    r"(?:oxygen saturation|spo\s*2?|o2\s*sat(?:uration)?|saturation)[^\d]*(\d{2,3})\s*%?",
                 ],
                 "blood_sugar": [
                     r"(?:random blood sugar|blood sugar|glucose|rbs|fbs)[^\d]*(\d{2,4})\s*(?:mg[/.]?dl|mg%|mmol)?",
@@ -1060,7 +1067,10 @@ class MedicalNLPService:
                     m = re.search(pat, text_lower)
                     if m:
                         if vkey == "blood_pressure":
-                            vitals[vkey] = f"{m.group(1)}/{m.group(2)} mmHg"
+                            systolic = m.group(1)
+                            diastolic = m.group(2) if len(m.groups()) > 1 else None
+                            vitals[vkey] = f"{systolic}/{diastolic}" if diastolic else systolic
+                            if "mm" not in vitals[vkey]: vitals[vkey] += " mmHg"
                         else:
                             val = m.group(1)
                             if vkey == "heart_rate": vitals[vkey] = f"{val} bpm"
@@ -1073,10 +1083,13 @@ class MedicalNLPService:
             return vitals
 
         def ensure_list(val):
+            """Robust list utility: ensures value is a list for the model."""
             if isinstance(val, list):
                 return val
             if isinstance(val, str) and val.strip():
-                return [val]
+                # Try to split common delimiters
+                import re
+                return [s.strip() for s in re.split(r'[,\n;]+', val) if s.strip()]
             return []
 
         if not self.client and not self.ollama_url:
@@ -1154,7 +1167,15 @@ class MedicalNLPService:
                     "objective": ensure_dict(raw_data.get("objective")),
                     "assessment": ensure_dict(raw_data.get("assessment")),
                     "plan": ensure_dict(raw_data.get("plan")),
-                    "follow_up": ensure_dict(raw_data.get("follow_up"))
+                    "follow_up": ensure_dict(raw_data.get("follow_up")),
+                    "extracted_diagnosis": [
+                        (d["name"] if isinstance(d, dict) else str(d)) 
+                        for d in ensure_list(raw_data.get("extracted_entities", {}).get("diagnoses", []))
+                    ],
+                    "extracted_symptoms": [
+                        (s["name"] if isinstance(s, dict) else s["value"] if isinstance(s, dict) and "value" in s else str(s))
+                        for s in ensure_list(raw_data.get("extracted_entities", {}).get("symptoms", []))
+                    ]
                 },
                 "extracted_symptoms": ensure_list(raw_data.get("extracted_entities", {}).get("symptoms", [])),
                 "extracted_diagnosis": ensure_list(raw_data.get("extracted_entities", {}).get("diagnoses", [])),

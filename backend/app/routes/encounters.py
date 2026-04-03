@@ -12,7 +12,12 @@ router = APIRouter()
 
 @router.get("/")
 async def list_encounters():
-    return await Encounter.find_all().sort("-created_at").to_list()
+    try:
+        from app.models.encounter import Encounter
+        return await Encounter.find_all().sort("-created_at").to_list()
+    except Exception as e:
+        logger.error(f"Error listing encounters: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{encounter_id}")
 async def get_encounter(encounter_id: str):

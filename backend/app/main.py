@@ -83,9 +83,56 @@ async def encounter_ws(websocket: WebSocket, encounter_id: str):
     await websocket.accept()
     from app.modules.ai.fusion import ai_fusion
     import base64
+    import asyncio
+    from asyncio import Queue
+    
+    # Process messages in a sequential queue to avoid blocking heartbeats
+    # while maintaining order for transcription continuity.
+    msg_queue = Queue()
+    
+    async def process_worker():
+        while True:
+            try:
+                msg_type, payload, enc_id = await msg_queue.get()
+                if not payload:
+                    msg_queue.task_done()
+                    continue
+                
+                # Decode base64 payload
+                try:
+                    raw_data = base64.b64decode(payload)
+                except Exception as e:
+                    logger.error(f"Base64 decode error: {e}")
+                    msg_queue.task_done()
+                    continue
+
+                # Process based on type (with per-chunk error protection)
+                try:
+                    if msg_type == "audio":
+                        result = await ai_fusion.process_encounter_stream(enc_id, audio_chunk=raw_data, live=True)
+                        await websocket.send_text(json.dumps(result))
+                    elif msg_type == "video":
+                        result = await ai_fusion.process_encounter_stream(enc_id, video_frame=raw_data, live=True)
+                        await websocket.send_text(json.dumps(result))
+                except Exception as chunk_err:
+                    logger.error(f"Error processing {msg_type} chunk: {chunk_err}")
+                    try:
+                        await websocket.send_text(json.dumps({"status": "processing_error", "error": str(chunk_err)}))
+                    except: pass
+                
+                msg_queue.task_done()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"WS Worker Error: {e}")
+                msg_queue.task_done()
+
+    # Start the worker task
+    worker_task = asyncio.create_task(process_worker())
+
     try:
         while True:
-            # Receive JSON message
+            # Receive JSON message WITHOUT BLOCKING heartbeats or accumulating lag
             try:
                 message = await websocket.receive_json()
             except:
@@ -94,31 +141,14 @@ async def encounter_ws(websocket: WebSocket, encounter_id: str):
             msg_type = message.get("type")
             payload = message.get("data")
             
-            if not payload:
-                continue
-                
-            # Decode base64 payload
-            try:
-                raw_data = base64.b64decode(payload)
-            except Exception as e:
-                print(f"Base64 decode error: {e}")
-                continue
-
-            # Process based on type (with per-chunk error protection)
-            try:
-                if msg_type == "audio":
-                    result = await ai_fusion.process_encounter_stream(encounter_id, audio_chunk=raw_data, live=True)
-                    await websocket.send_text(json.dumps(result))
-                elif msg_type == "video":
-                    result = await ai_fusion.process_encounter_stream(encounter_id, video_frame=raw_data, live=True)
-                    await websocket.send_text(json.dumps(result))
-            except Exception as chunk_err:
-                logger.error(f"Error processing {msg_type} chunk: {chunk_err}")
-                await websocket.send_text(json.dumps({"status": "processing_error", "error": str(chunk_err)}))
+            if msg_type and payload:
+                # Add to queue for the worker to pick up
+                await msg_queue.put((msg_type, payload, encounter_id))
             
     except Exception as e:
         logger.error(f"Global WS Error: {e}")
     finally:
+        worker_task.cancel()
         try:
             await websocket.close()
         except:

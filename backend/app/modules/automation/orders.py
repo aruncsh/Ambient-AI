@@ -38,20 +38,21 @@ class OrderAutomation:
         plan_lower = plan_text.lower()
         
         if "heart" in plan_lower or "chest" in plan_lower or "cardio" in plan_lower or "ecg" in plan_lower or "angina" in plan_lower:
-            orders.extend(["Troponin I", "12-Lead ECG", "Echocardiogram"])
+            for t in ["Troponin I", "12-Lead ECG", "Echocardiogram"]:
+                orders.append({"test_name": t, "status": "ordered", "priority": "high"})
         
         if "blood" in plan_lower or "infection" in plan_lower or "fever" in plan_lower:
-            orders.append("Complete Blood Count (CBC) with Differential")
-            orders.append("Basic Metabolic Panel (BMP)")
+            orders.append({"test_name": "Complete Blood Count (CBC) with Differential", "status": "ordered", "priority": "routine"})
+            orders.append({"test_name": "Basic Metabolic Panel (BMP)", "status": "ordered", "priority": "routine"})
             
         if "sugar" in plan_lower or "diabet" in plan_lower:
-            orders.append("Hemoglobin A1c")
+            orders.append({"test_name": "Hemoglobin A1c", "status": "ordered", "priority": "routine"})
             
         if "imaging" in plan_lower or "x-ray" in plan_lower or "mri" in plan_lower:
-            orders.append("Chest X-Ray (PA and Lateral)")
+            orders.append({"test_name": "Chest X-Ray (PA and Lateral)", "status": "ordered", "priority": "routine"})
             
         if not orders:
-            orders.append("General Wellness Panel")
+            orders.append({"test_name": "General Wellness Panel", "status": "ordered", "priority": "routine"})
             
         return orders
 
