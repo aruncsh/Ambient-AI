@@ -12,6 +12,7 @@ import Consent from './pages/Consent';
 import Encounter from './pages/Encounter';
 import Review from './pages/Review';
 import TextToSoap from './pages/TextToSoap';
+import Users from './pages/Users';
 
 import PipelineSimulator from './components/PipelineSimulator';
 import Navbar from './components/Navbar';
@@ -30,6 +31,7 @@ const AnimatedRoutes = () => {
         <Route path="/encounter/:id" element={<Encounter />} />
         <Route path="/review/:id" element={<Review />} />
         <Route path="/text-to-soap" element={<TextToSoap />} />
+        <Route path="/users" element={<Users />} />
       </Routes>
     </AnimatePresence>
   );

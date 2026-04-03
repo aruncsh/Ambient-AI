@@ -5,3 +5,4 @@ from .consent import router as consent
 from .scheduling import router as scheduling
 from .billing import router as billing
 from .ai import router as ai
+from .users import router as users

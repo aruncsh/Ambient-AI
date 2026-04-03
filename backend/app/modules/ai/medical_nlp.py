@@ -159,7 +159,7 @@ STRICT EXTRACTION RULES (ZERO DATA LOSS)
 3. DURATION FIDELITY: For every finding or symptom, explicitly capture the "From when" (duration) detail if mentioned (e.g. "x5 days", "since 2010").
 4. NO SUMMARIZATION: The 'clean_conversation' field must contain the FULL dialogue. Representation of every exchange is mandatory.
 5. NO HALLUCINATIONS: Do not invent symptoms, history, or values not present in the transcript.
-6. NO GUESSING VITALS: If a vital (BP, HR, Temp, SpO2) is NOT explicitly mentioned, you MUST return an empty string "" for that field. NEVER guess or provide placeholder values.
+6. NO GUESSING VITALS: If a numeric vital (BP, HR, Temp, SpO2) is NOT explicitly mentioned, but the doctor asks if it is present or normal (e.g., "Do you have BP?" or "Is your heart rate normal?") and the patient responds, you MUST capture the response as "Yes", "No", or "Normal" in the relevant field. Only return an empty string "" if the vital was never discussed at all. NEVER guess or provide placeholder numeric values.
 7. NO SUGGESTIONS: Do not add external recommendations or diagnoses not explicitly discussed.
 8. VALID JSON ONLY.
 
@@ -553,24 +553,31 @@ class MedicalNLPService:
             "blood_pressure": [
                 r"blood pressure[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
                 r"\bbp[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
+                r"(?:have|has|any|check)\s+(?:blood pressure|bp)[^\?]*\?\s+(?:patient:\s*)?(yes|no|normal|high|low)",
             ],
             "heart_rate": [
                 r"(?:pulse|heart rate|hr)[^\d]*(\d{2,3})\s*(?:beats? per minute|bpm|/min)?",
+                r"(?:heart rate|pulse|hr)\s+(?:is|feels)\s+(normal|fast|slow|racing|skipping|yes|no)",
             ],
             "respiratory_rate": [
                 r"(?:respiratory rate|respiration)[^\d]*(\d{1,3})\s*(?:breaths?|/min)?",
+                r"(?:breathing|respiration)\s+is\s+(normal|heavy|shallow|labored|yes|no)",
             ],
             "oxygen_saturation": [
                 r"(?:oxygen saturation|spo\s*2?|o2\s*sat(?:uration)?|saturation)[^\d]*(\d{2,3})\s*%?",
+                r"(?:oxygen|spo2|saturation)\s+is\s+(normal|good|low|fine|yes|no)",
             ],
             "blood_sugar": [
                 r"(?:random blood sugar|blood sugar|glucose|rbs|fbs)[^\d]*(\d{2,4})\s*(?:mg[/.]?dl|mg%|mmol)?",
+                r"(?:sugar|diabetes|glucose)\s+(?:is|levels|any)\s+(normal|high|low|controlled|yes|no)",
             ],
             "temperature": [
                 r"(?:temperature|temp)[^\d]*(\d{2,3}(?:\.\d)?)\s*(?:degrees?|°)?\s*(?:fahrenheit|celsius|f\b|c\b)?",
+                r"(?:fever|temperature|temp)\s+(?:is|any)\s+(none|normal|high|yes|no)",
             ],
             "weight": [
                 r"(?:weight|wt)[^\d]*(\d{2,3}(?:\.\d)?)\s*(?:kg|kilograms?|lbs?|pounds?)?",
+                r"(?:weight|wt)\s+(?:is|any|stable)\s+(normal|stable|increasing|decreasing|yes|no|none)",
             ],
         }
 
@@ -1041,24 +1048,31 @@ class MedicalNLPService:
                 "blood_pressure": [
                     r"blood pressure[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
                     r"\bbp[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
+                    r"(?:have|has|any|check)\s+(?:blood pressure|bp)[^\?]*\?\s+(?:patient:\s*)?(yes|no|normal|high|low)",
                 ],
                 "heart_rate": [
                     r"(?:pulse|heart rate|hr)[^\d]*(\d{2,3})\s*(?:beats? per minute|bpm|/min)?",
+                    r"(?:heart rate|pulse|hr)\s+(?:is|feels)\s+(normal|fast|slow|racing|skipping|yes|no)",
                 ],
                 "respiratory_rate": [
                     r"(?:respiratory rate|respiration)[^\d]*(\d{1,3})\s*(?:breaths?|/min)?",
+                    r"(?:breathing|respiration)\s+is\s+(normal|heavy|shallow|labored|yes|no)",
                 ],
                 "oxygen_saturation": [
                     r"(?:oxygen saturation|spo\s*2?|o2\s*sat(?:uration)?|saturation)[^\d]*(\d{2,3})\s*%?",
+                    r"(?:oxygen|spo2|saturation)\s+is\s+(normal|good|low|fine|yes|no)",
                 ],
                 "blood_sugar": [
                     r"(?:random blood sugar|blood sugar|glucose|rbs|fbs)[^\d]*(\d{2,4})\s*(?:mg[/.]?dl|mg%|mmol)?",
+                    r"(?:sugar|diabetes|glucose)\s+(?:is|levels|any)\s+(normal|high|low|controlled|yes|no)",
                 ],
                 "temperature": [
                     r"(?:temperature|temp)[^\d]*(\d{2,3}(?:\.\d)?)\s*(?:degrees?|°)?\s*(?:fahrenheit|celsius|f\b|c\b)?",
+                    r"(?:fever|temperature|temp)\s+(?:is|any)\s+(none|normal|high|yes|no)",
                 ],
                 "weight": [
                     r"(?:weight|wt)[^\d]*(\d{2,3}(?:\.\d)?)\s*(?:kg|kilograms?|lbs?|pounds?)?",
+                    r"(?:weight|wt)\s+(?:is|any|stable)\s+(normal|stable|increasing|decreasing|yes|no|none)",
                 ],
             }
             text_lower = text.lower()

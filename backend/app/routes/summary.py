@@ -79,6 +79,8 @@ async def update_soap(encounter_id: str, request_data: Dict):
             encounter.billing_codes = request_data["billing_codes"]
         if "patient_name" in request_data:
             encounter.patient_name = request_data["patient_name"]
+        if "vitals" in request_data:
+            encounter.vitals = request_data["vitals"]
             
         encounter.updated_at = datetime.utcnow()
     

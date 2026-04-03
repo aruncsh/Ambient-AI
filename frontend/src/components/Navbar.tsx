@@ -20,6 +20,7 @@ const Navbar = () => {
     { name: 'Billing', path: '/billing', icon: Receipt },
     { name: 'History', path: '/history', icon: HistoryIcon },
     { name: 'Consent', path: '/consent', icon: ClipboardSignature },
+    { name: 'Personnel', path: '/users', icon: User },
   ];
 
   return (

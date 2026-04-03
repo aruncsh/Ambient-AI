@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, WebSocket, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.mongodb import init_db
-from app.routes import encounters, summary, automation, consent, scheduling, billing, ai
+from app.routes import encounters, summary, automation, consent, scheduling, billing, ai, users
 from app.core.audit_log import audit_log_middleware
 from app.core.retention import retention_worker
 from contextlib import asynccontextmanager
@@ -49,6 +49,7 @@ app.include_router(consent, prefix="/api/v1/consent", tags=["Consent"])
 app.include_router(scheduling, prefix="/api/v1/scheduling", tags=["Scheduling"])
 app.include_router(billing, prefix="/api/v1/billing", tags=["Billing"])
 app.include_router(ai, prefix="/api/v1/ai", tags=["AI"])
+app.include_router(users, prefix="/api/v1/users", tags=["Users"])
 
 @app.get("/health")
 async def health():

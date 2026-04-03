@@ -2,20 +2,43 @@ import React, { useState, useRef, useEffect } from 'react';
 import SignaturePad from 'signature_pad';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ClipboardCheck, Mic, Trash2, CheckCircle2, ChevronRight, Info, Edit3, Volume2 } from 'lucide-react';
+import { ClipboardCheck, Mic, Trash2, CheckCircle2, ChevronRight, Info, Edit3, Volume2, Users } from 'lucide-react';
+import { api } from '../lib/api';
 
 const Consent: React.FC = () => {
-    const [patientName, setPatientName] = useState("Jane Doe");
+    const [patients, setPatients] = useState<any[]>([]);
+    const [selectedPatientId, setSelectedPatientId] = useState<string>("");
+    const [patientName, setPatientName] = useState("");
     const [consentType, setConsentType] = useState<'signature' | 'verbal' | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [step, setStep] = useState(1); // 1: Info/Name, 2: Choose Method, 3: Capture, 4: Done
     const [signature, setSignature] = useState<string | null>(null);
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+    const [loading, setLoading] = useState(true);
     
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const signaturePadRef = useRef<SignaturePad | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const fetchPatients = async () => {
+            try {
+                setLoading(true);
+                const data = await api.getPatients();
+                setPatients(data || []);
+                if (data && data.length > 0) {
+                    setSelectedPatientId(data[0].id || data[0]._id);
+                    setPatientName(data[0].name);
+                }
+            } catch (err) {
+                console.error("Failed to fetch patients:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchPatients();
+    }, []);
 
     useEffect(() => {
         if (consentType === 'signature' && canvasRef.current) {
@@ -83,7 +106,11 @@ const Consent: React.FC = () => {
             const resp = await fetch('/api/v1/encounters/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ patient_id: patientName, clinician_id: "Dr. Smith" })
+                body: JSON.stringify({ 
+                    patient_id: selectedPatientId || patientName, 
+                    patient_name: patientName,
+                    clinician_id: "Dr. Smith" 
+                })
             });
             const encounter = await resp.json();
             const encounterId = encounter.id || encounter._id;
@@ -126,13 +153,34 @@ const Consent: React.FC = () => {
                                     <Info size={14} /> Intake & Compliance
                                 </div>
                                 <h1 className="text-4xl font-bold text-white mb-4">Patient Consent</h1>
-                                <p className="text-zinc-400 text-lg leading-relaxed">
-                                    I, <input 
-                                        type="text" 
-                                        value={patientName} 
-                                        onChange={(e) => setPatientName(e.target.value)}
-                                        className="bg-transparent border-b border-indigo-500/50 text-white focus:outline-none focus:border-indigo-400 px-1 font-semibold"
-                                    />, consent to the recording and AI-assisted transcription of this medical consultation.
+                                <p className="text-zinc-400 text-lg leading-relaxed flex flex-wrap items-center gap-3">
+                                    I, 
+                                    {patients.length > 0 ? (
+                                        <select 
+                                            value={selectedPatientId}
+                                            onChange={(e) => {
+                                                const p = patients.find(p => (p.id || p._id) === e.target.value);
+                                                setSelectedPatientId(e.target.value);
+                                                if (p) setPatientName(p.name);
+                                            }}
+                                            className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl px-4 py-2 text-white font-bold outline-none focus:border-indigo-500 transition-all cursor-pointer"
+                                        >
+                                            {patients.map(p => (
+                                                <option key={p.id || p._id} value={p.id || p._id} className="bg-zinc-900 text-white">
+                                                    {p.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    ) : (
+                                        <input 
+                                            type="text" 
+                                            placeholder="Patient Name"
+                                            value={patientName} 
+                                            onChange={(e) => setPatientName(e.target.value)}
+                                            className="bg-transparent border-b border-indigo-500/50 text-white focus:outline-none focus:border-indigo-400 px-1 font-semibold"
+                                        />
+                                    )}
+                                    , consent to the recording and AI-assisted transcription of this medical consultation.
                                 </p>
                                 <p className="text-zinc-500 mt-4 text-sm italic">
                                     I understand that the recording will be used solely for generating clinical documentation and will be stored securely in accordance with HIPAA regulations.

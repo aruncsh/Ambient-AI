@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     CheckCircle2, Sparkles, Wand2, Mic,
-    Save, FileCheck, ShieldCheck, ChevronRight, Download
+    Save, FileCheck, ShieldCheck, ChevronRight, Download, Activity
 } from 'lucide-react';
 
 const Review: React.FC = () => {
@@ -18,6 +18,15 @@ const Review: React.FC = () => {
         follow_up: "" as any,
         billing: "" as any,
         clean_transcript: ""
+    });
+    const [vitals, setVitals] = useState<any>({
+        heart_rate: { value: null },
+        blood_pressure: { value: null },
+        oxygen_saturation: { value: null },
+        temperature: { value: null },
+        respiratory_rate: { value: null },
+        weight: { value: null },
+        blood_sugar: { value: null }
     });
 
     const [automation, setAutomation] = useState({
@@ -68,6 +77,9 @@ const Review: React.FC = () => {
                         fhir_id: encounterData.fhir_id || "",
                         fhir_status: encounterData.fhir_status || (encounterData.status === 'completed' ? 'synced' : 'pending')
                     });
+                    if (encounterData.vitals) {
+                        setVitals(encounterData.vitals);
+                    }
                     setTranscript(encounterData.transcript || []);
                     setLoading(false);
                     return;
@@ -125,6 +137,9 @@ const Review: React.FC = () => {
                         if (encounterData.transcript) {
                             setTranscript(encounterData.transcript);
                         }
+                        if (encounterData.vitals) {
+                            setVitals(encounterData.vitals);
+                        }
                     }
                 }
             } catch (err) {
@@ -146,6 +161,13 @@ const Review: React.FC = () => {
                 follow_up: { follow_up_timeline: "1 week", warning_signs: ["Severe pain", "Fever"], referrals: "None" },
                 billing: { cpt_codes: [] },
                 clean_transcript: "Doctor: Hello, how are you? Patient: I am fine, thank you."
+            });
+            setVitals({
+                heart_rate: { value: "72 bpm" },
+                blood_pressure: { value: "120/80 mmHg" },
+                oxygen_saturation: { value: "98%" },
+                temperature: { value: "98.6 F" },
+                respiratory_rate: { value: "16/min" }
             });
             setLoading(false);
         }
@@ -204,6 +226,7 @@ const Review: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     soap_note: soap,
+                    vitals: vitals,
                     billing_codes: automation.billing_codes,
                     patient_name: automation.patient_name
                 })
@@ -309,6 +332,38 @@ const Review: React.FC = () => {
                             />
                         </motion.div>
                     )}
+
+                    {/* Vitals Section */}
+                    <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-emerald-600/5 rounded-3xl p-8 border border-emerald-500/10 hover:border-emerald-500/20 transition-all group"
+                    >
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">
+                                Extracted Vitals
+                            </h3>
+                            <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-500">
+                                <Activity size={12} className="text-emerald-400" /> Auto-captured
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {Object.entries(vitals).map(([key, data]: [string, any]) => (
+                                <div key={key} className="space-y-2 bg-white/5 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-all">
+                                    <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-[0.2em] block">
+                                        {key.replace(/_/g, ' ')}
+                                    </label>
+                                    <textarea 
+                                        rows={2}
+                                        value={data?.value || ""}
+                                        placeholder="Add value or clinical note..."
+                                        onChange={(e) => setVitals({...vitals, [key]: { ...data, value: e.target.value }})}
+                                        className="w-full bg-transparent border-0 px-0 py-1 text-white font-medium focus:ring-0 transition-all resize-none text-sm placeholder:text-zinc-700"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </motion.div>
 
                     {Object.entries(soap).filter(([k]) => k !== 'clean_transcript').map(([key, value], idx) => (
                         <motion.div 

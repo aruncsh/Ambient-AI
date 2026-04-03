@@ -10,6 +10,7 @@ from app.models.consent import Consent
 from app.models.api_response_log import APIResponseLog
 from app.models.scheduling import Appointment
 from app.models.billing import Invoice
+from app.models.user import Patient, Doctor
 
 async def init_db():
     client = AsyncIOMotorClient(
@@ -25,6 +26,8 @@ async def init_db():
             Consent,
             APIResponseLog,
             Appointment,
-            Invoice
+            Invoice,
+            Patient,
+            Doctor
         ]
     )

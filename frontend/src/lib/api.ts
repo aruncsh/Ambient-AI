@@ -67,5 +67,29 @@ export const api = {
       method: 'PATCH'
     });
     return res.json();
+  },
+  getPatients: async () => {
+    const res = await fetch(`${API_BASE}/users/patients`);
+    return res.json();
+  },
+  createPatient: async (patient: any) => {
+    const res = await fetch(`${API_BASE}/users/patients`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patient)
+    });
+    return res.json();
+  },
+  getDoctors: async () => {
+    const res = await fetch(`${API_BASE}/users/doctors`);
+    return res.json();
+  },
+  createDoctor: async (doctor: any) => {
+    const res = await fetch(`${API_BASE}/users/doctors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(doctor)
+    });
+    return res.json();
   }
 };
