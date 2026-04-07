@@ -1,0 +1,37 @@
+services:
+  # Backend Service (FastAPI)
+  - type: web
+    name: ambient-ai-backend
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    plan: standard # Or free if available/preferred, though standard is safer for AI tasks
+    envVars:
+      - key: MONGO_URL
+        sync: false # User should provide this (e.g. MongoDB Atlas)
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        value: c2VjcmV0LWtleS1tdXN0LWJlLTMyLWJ5dGVzLWxvbmctISEh # Update this in Prod!
+      - key: WHISPER_PROVIDER
+        value: openai # Recommended for Render as local whisper is too heavy
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: MEDICAL_NLP_PROVIDER
+        value: llm
+      - key: PORT
+        value: 10000
+
+  # Frontend Service (Static Site)
+  - type: web
+    name: ambient-ai-frontend
+    env: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./frontend/dist
+    rootDir: ./frontend
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: ambient-ai-backend
+          property: host

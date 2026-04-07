@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Sparkles, FileText, Send, ArrowLeft, Brain, ShieldCheck, Zap, Info, Loader2 } from 'lucide-react';
+import { API_BASE } from '../lib/api';
 
 const TextToSoap: React.FC = () => {
     const navigate = useNavigate();
@@ -13,7 +14,7 @@ const TextToSoap: React.FC = () => {
         if (!text.trim()) return;
         setIsGenerating(true);
         try {
-            const resp = await fetch('/api/v1/summary/text-to-soap', {
+            const resp = await fetch(`${API_BASE}/summary/text-to-soap`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text, patient_id: patientId || "Anonymous" })

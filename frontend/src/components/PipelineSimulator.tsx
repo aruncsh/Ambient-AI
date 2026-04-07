@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Zap, ChevronRight, Brain, Activity, Waves } from 'lucide-react';
+import { API_BASE } from '../lib/api';
 
 const PipelineSimulator: React.FC = () => {
     const [results, setResults] = useState<any>(null);
@@ -9,7 +10,7 @@ const PipelineSimulator: React.FC = () => {
     const runSimulation = async () => {
         setLoading(true);
         try {
-            const resp = await fetch('/api/v1/simulate', { method: 'POST' });
+            const resp = await fetch(`${API_BASE}/simulate`, { method: 'POST' });
             const data = await resp.json();
             setResults(data.results);
         } catch (err) {

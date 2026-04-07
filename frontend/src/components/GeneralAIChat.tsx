@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bot, X, Send, Sparkles, ChevronDown, RotateCcw, ShieldCheck, Brain, MessageSquare } from 'lucide-react';
+import { API_BASE } from '../lib/api';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -38,7 +39,7 @@ const GeneralAIChat: React.FC = () => {
         setIsLoading(true);
 
         try {
-            const resp = await fetch('/api/v1/ai/chat', {
+            const resp = await fetch(`${API_BASE}/ai/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

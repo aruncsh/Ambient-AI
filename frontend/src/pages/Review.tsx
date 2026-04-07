@@ -9,6 +9,7 @@ import {
     Zap, Cpu, BarChart3, ShieldAlert, ArrowRight, Verified, Loader2,
     Heart, Thermometer, Wind, Droplets, Scale, Gauge
 } from 'lucide-react';
+import { API_BASE } from '../lib/api';
 
 const Review: React.FC = () => {
     const { id } = useParams();
@@ -61,7 +62,7 @@ const Review: React.FC = () => {
     useEffect(() => {
         const fetchEncounter = async () => {
             try {
-                const resp = await fetch(`/api/v1/encounters/${id}`);
+                const resp = await fetch(`${API_BASE}/encounters/${id}`);
                 const data = await resp.json();
 
                 if (!data) return;
@@ -195,7 +196,7 @@ const Review: React.FC = () => {
                 return acc;
             }, {});
 
-            await fetch(`/api/v1/summary/${id}/update`, {
+            await fetch(`${API_BASE}/summary/${id}/update`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

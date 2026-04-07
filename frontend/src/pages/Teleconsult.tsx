@@ -270,15 +270,27 @@ const Teleconsult = () => {
                                             <p className="text-xs font-bold text-slate-600 leading-tight">Patient describing: {summary["3_health"].history_of_present_illness.substring(0, 80)}...</p>
                                         </div>
                                     ) : (
-                                        [
-                                            { time: '02:15', text: 'Chief complaint documented' },
-                                            { time: '05:40', text: 'HPI discussed' },
-                                        ].map((event, i) => (
-                                            <div key={i} className="flex gap-4 items-start">
-                                                <div className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-md">{event.time}</div>
-                                                <p className="text-xs font-bold text-slate-600 leading-tight">{event.text}</p>
-                                            </div>
-                                        ))
+                                        appointment?.additional_info?.participants ? (
+                                            appointment.additional_info.participants.map((p: any, i: number) => (
+                                                <div key={i} className="flex flex-col gap-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                                                    <div className="flex justify-between items-center">
+                                                        <div className="text-[9px] font-black text-blue-600 uppercase tracking-widest">{p.role}</div>
+                                                        <div className="text-[9px] font-bold text-slate-400">ID: {p.id}</div>
+                                                    </div>
+                                                    <div className="text-[10px] font-medium text-slate-600 truncate">Token: {p.token}</div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            [
+                                                { time: '02:15', text: 'Chief complaint documented' },
+                                                { time: '05:40', text: 'HPI discussed' },
+                                            ].map((event, i) => (
+                                                <div key={i} className="flex gap-4 items-start">
+                                                    <div className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-md">{event.time}</div>
+                                                    <p className="text-xs font-bold text-slate-600 leading-tight">{event.text}</p>
+                                                </div>
+                                            ))
+                                        )
                                     )}
                                 </div>
                             </div>

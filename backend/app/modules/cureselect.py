@@ -93,7 +93,7 @@ class CureSelectClient:
     async def create_resource_consult(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Creates a consult using the standard resource payload format supplied.
-        Replicates PHP createModel logic.
+        Replicated from the requested Garuda payload format.
         """
         patient_id = data.get("patient_id")
         clinician_id = data.get("clinician_id")
@@ -112,27 +112,68 @@ class CureSelectClient:
              except:
                  pass
 
-        # Flattened payload matching the PHP implementation exactly
+        # Parse start_time
+        start_time_str = data.get("start_time")
+        if isinstance(start_time_str, str):
+            try:
+                # Handle ISO format from frontend (e.g. 2024-03-20T10:00:00.000Z)
+                start_dt = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+            except:
+                start_dt = datetime.now()
+        elif isinstance(start_time_str, datetime):
+            start_dt = start_time_str
+        else:
+            start_dt = datetime.now()
+
+        # Parse end_time or default to +15 mins
+        end_time_str = data.get("end_time")
+        if end_time_str:
+            try:
+                end_dt = datetime.fromisoformat(str(end_time_str).replace('Z', '+00:00'))
+            except:
+                end_dt = start_dt + timedelta(minutes=15)
+        else:
+            end_dt = start_dt + timedelta(minutes=15)
+
+        # Build payload based on user's sample
+        # Note: In the sample provider_id: 0 and patient_id: 10 might be integers on their end
+        # We try to use numeric IDs if available, else fallback to placeholders
+        
+        # Check if the IDs are already numeric (like "10")
+        final_patient_id = 10
+        if patient_id:
+             if str(patient_id).isdigit(): final_patient_id = int(patient_id)
+             elif patient: final_patient_id = int(str(patient.id)[-4:], 16) % 1000
+
+        final_provider_id = 0
+        if clinician_id:
+             if str(clinician_id).isdigit(): final_provider_id = int(clinician_id)
+             elif doctor: final_provider_id = int(str(doctor.id)[-4:], 16) % 1000
+
         payload = {
-            "consult_date_time": data.get("start_time") or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "consult_type": data.get("consult_type", "virtual"),
-            "consult_slot_type": data.get("consult_slot_type", "Slot"),
-            "reason_for_consult": data.get("reason") or "Virtual Consultation",
-            "consult_duration": data.get("duration") or "15",
-            "speciality": data.get("speciality", "General"),
-            "unit": data.get("unit", "Default"),
-            "slots": data.get("slots", "1"),
-            "member_id": str(patient.id) if patient else patient_id or "491",
-            "provider_id": str(doctor.id) if doctor else clinician_id or "296",
-            "virtual_service_provider": "tokbox",
-            "additional_info": data.get("additional_info", {"source": "Ambient AI Node"})
+            "consult_date": start_dt.strftime("%Y-%m-%d"),
+            "provider_id": final_provider_id,
+            "consult_time": start_dt.strftime("%H:%M"),
+            "patient_id": final_patient_id,
+            "patient_name": patient.name if patient else data.get("patient_name") or "Ram Mohan",
+            "speciality": doctor.specialization if doctor and doctor.specialization else data.get("speciality") or "unknown",
+            "reason_for_consult": data.get("reason") or "Garuda Consult Call",
+            "consult_doctor": doctor.name if doctor else "UnKnown",
+            "doctor_mobile": doctor.phone if doctor and doctor.phone else "+917540032060",
+            "teleType": "1",
+            "consult_date_time": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "consult_end_time": end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "cart_camera": data.get("cart_camera") or {
+                "camera_ip": "192.168.5.163",
+                "camera_name": "Internal IP Camera",
+                "camera_type": "minrray",
+                "camera_short_name": "M"
+            }
         }
-        
-        # Add patient details if the microservice supports them in the root or additional_info
-        # But based on PHP code, it relies on member_id/provider_id
-        
-        if data.get("cart_camera"):
-            payload["camera_id"] = data.get("cart_camera")
+
+        # Add any additional info from data if present
+        if data.get("additional_info"):
+            payload.update(data["additional_info"])
 
         return await self.create_consult(payload)
 

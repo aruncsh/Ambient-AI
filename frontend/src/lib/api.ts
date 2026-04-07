@@ -1,4 +1,5 @@
-const API_BASE = '/api/v1';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+export const API_BASE = `${API_BASE_URL}/api/v1`;
 
 export const api = {
   getEncounters: async () => {
@@ -45,7 +46,7 @@ export const api = {
     return res.json();
   },
   simulate: async () => {
-    const res = await fetch(`/simulate`, { method: 'POST' });
+    const res = await fetch(`${API_BASE_URL}/simulate`, { method: 'POST' });
     return res.json();
   },
   updateDemographics: async (id: string, demographics: any) => {

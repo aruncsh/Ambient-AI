@@ -7,7 +7,7 @@ import {
     ShieldCheck, ArrowLeft, RotateCcw, Users, Stethoscope,
     AlertCircle, Play, Pause, Trash2
 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, API_BASE } from '../lib/api';
 
 const Consent: React.FC = () => {
     const location = useLocation();
@@ -160,7 +160,7 @@ const Consent: React.FC = () => {
         if (finalizing) return;
         setFinalizing(true);
         try {
-            const resp = await fetch('/api/v1/encounters/', {
+            const resp = await fetch(`${API_BASE}/encounters/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 

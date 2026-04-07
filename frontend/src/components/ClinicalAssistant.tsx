@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Brain, AlertTriangle, HelpCircle, FlaskConical, ChevronRight, RefreshCw, Activity, Sparkles, ShieldCheck } from 'lucide-react';
+import { API_BASE } from '../lib/api';
 
 interface Suggestions {
     differential_diagnoses: string[];
@@ -34,7 +35,7 @@ const ClinicalAssistant: React.FC<Props> = ({ transcript, isActive, insights = [
         const fullTranscript = transcript.map(t => `${t.speaker}: ${t.text}`).join('\n');
         setLoading(true);
         try {
-            const resp = await fetch('/api/v1/ai/suggest', {
+            const resp = await fetch(`${API_BASE}/ai/suggest`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ transcript: fullTranscript })

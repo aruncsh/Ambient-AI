@@ -32,11 +32,24 @@ async def create_appointment(appointment: Appointment):
                 if consult_response and isinstance(consult_response, dict):
                     # The microservice returns 'consult_id' or 'id'
                     consult_data = consult_response.get("data", {}) or consult_response
-                    consult_id = str(consult_data.get("consult_id") or consult_data.get("id"))
+                    # The microservice returns 'consult_id' or 'id' inside 'data.consults[0]'
+                    consults = consult_data.get("consults", [])
+                    main_consult = consults[0] if consults else (consult_data if "id" in consult_data else {})
+                    consult_id = str(main_consult.get("id") or consult_data.get("consult_id") or consult_data.get("id"))
                     
                     # Store microservice ID and link
+                    # Try to find publisher token for the link if direct link not provided
+                    publisher_token = None
+                    participants = main_consult.get("participants", [])
+                    for p in participants:
+                        if p.get("role") == "publisher":
+                            publisher_token = p.get("token")
+                            break
+                    
                     ext_link = consult_response.get("consult_link") or consult_response.get("link")
-                    if ext_link:
+                    if publisher_token:
+                        appointment.teleconsult_link = f"https://services-api.a2zhealth.in/consult/{publisher_token}"
+                    elif ext_link:
                         appointment.teleconsult_link = ext_link
                     elif consult_id:
                         appointment.teleconsult_link = f"https://services-api.a2zhealth.in/consult/{consult_id}"
@@ -44,6 +57,8 @@ async def create_appointment(appointment: Appointment):
                     # Keep record of external ID for Ambient AI sync
                     if consult_id:
                         appointment.additional_info["external_id"] = consult_id
+                        if participants:
+                            appointment.additional_info["participants"] = participants
                 
                 await appointment.save()
     
