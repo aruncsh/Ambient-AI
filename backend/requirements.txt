@@ -20,3 +20,4 @@ rapidfuzz
 reportlab
 bleak
 pydub
+email-validator
