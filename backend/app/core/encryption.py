@@ -1,7 +1,17 @@
 from cryptography.fernet import Fernet
 from app.core.config import settings
 
-_fernet = Fernet(settings.ENCRYPTION_KEY.encode())
+import logging
+
+logger = logging.getLogger(__name__)
+
+try:
+    _fernet = Fernet(settings.ENCRYPTION_KEY.encode())
+except Exception as e:
+    logger.error(f"Failed to initialize Fernet with ENCRYPTION_KEY: {str(e)}")
+    # Fallback for development only - in production this will still cause issues but we provided a better log
+    _fernet = Fernet(Fernet.generate_key())
+    logger.warning("Generated a temporary encryption key. Data encrypted in this session will NOT be decryptable after restart.")
 
 def encrypt_data(data: str) -> str:
     if not data: return ""

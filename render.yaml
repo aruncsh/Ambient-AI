@@ -13,7 +13,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: ENCRYPTION_KEY
-        value: itTKGRPu3u_sCNBwsmVbGWVmxSMMvFHvdoUacmMPqCe8= # Valid 32-byte Fernet key
+        value: r9xUqe4lisT2RVcGV3YE72oTi_oorwt5vv8Lu7COFt18= # Valid 32-byte Fernet key
       - key: WHISPER_PROVIDER
         value: openai # REQUIRED for Free Tier (Local Whisper exceeds 512MB RAM)
       - key: OPENAI_API_KEY
