@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { 
   Plus, Clock, Users, Stethoscope,
   Search, BarChart3, Fingerprint, Activity, Radio,
-  ChevronRight, Calendar, AlertCircle
+  ChevronRight, Calendar, AlertCircle, ShieldCheck
 } from 'lucide-react';
 import { api } from '../lib/api';
 import AppointmentModal from '../components/AppointmentModal';
@@ -132,8 +132,13 @@ const Dashboard = () => {
                                     <tr key={i} className="hover:bg-slate-50 transition-colors">
                                         <td className="px-6 py-4 font-bold text-slate-900">{p.name || 'Anonymous'}</td>
                                         <td className="px-6 py-4 text-slate-500 font-mono">{p.id || p._id || 'N/A'}</td>
-                                        <td className="px-6 py-4">
+                                        <td className="px-6 py-4 flex items-center gap-2">
                                             <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 text-[10px] font-bold">Ready</span>
+                                            {p.is_consent_given && (
+                                                <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-[10px] font-bold flex items-center gap-1">
+                                                    <ShieldCheck size={10} /> Consent
+                                                </span>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <button 

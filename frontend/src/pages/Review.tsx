@@ -120,7 +120,11 @@ const Review: React.FC = () => {
                     fhir_status: data.fhir_status || (data.status === 'completed' ? 'synced' : 'pending')
                 });
 
-                if (data.nlp_insights) setNlpInsights(data.nlp_insights);
+                if (data.nlp_insights) setNlpInsights({
+                    symptoms: data.nlp_insights.symptoms || [],
+                    diagnoses: data.nlp_insights.diagnoses || [],
+                    billing_codes: data.nlp_insights.billing_codes || []
+                });
                 setTranscript(data.transcript || []);
                 setLoading(false);
             } catch (err) {
@@ -423,7 +427,7 @@ const Review: React.FC = () => {
                                     </div>
 
                                     <div className="space-y-8 relative">
-                                        {nlpInsights.diagnoses.length > 0 && (
+                                        {nlpInsights?.diagnoses?.length > 0 && (
                                             <div className="space-y-4">
                                                 <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Suggested Labels</label>
                                                 <div className="flex flex-wrap gap-2">
@@ -436,7 +440,7 @@ const Review: React.FC = () => {
                                             </div>
                                         )}
 
-                                        {nlpInsights.symptoms.length > 0 && (
+                                        {nlpInsights?.symptoms?.length > 0 && (
                                             <div className="space-y-4">
                                                 <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Detected Signs</label>
                                                 <div className="flex flex-wrap gap-2">

@@ -42,6 +42,20 @@ class ConsentFlow:
             encounter.consent_obtained = True
         
         await encounter.save()
+
+        # Update patient consent record if patient_id is valid
+        if encounter.patient_id and encounter.patient_id != "Anonymous":
+            from app.models.user import Patient
+            from bson.objectid import ObjectId
+            try:
+                if ObjectId.is_valid(encounter.patient_id):
+                    patient = await Patient.get(PydanticObjectId(encounter.patient_id))
+                    if patient:
+                        patient.is_consent_given = True
+                        await patient.save()
+            except Exception as e:
+                print(f"Failed to update patient consent: {e}")
+
         return {
             "success": True, 
             "consent_obtained": True,

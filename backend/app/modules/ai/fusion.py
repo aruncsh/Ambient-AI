@@ -13,7 +13,7 @@ from app.modules.ai.medical_nlp import medical_nlp_service
 from app.modules.automation.orders import order_automation
 from app.modules.automation.billing_service import billing_service
 from app.models.encounter import Encounter, SOAPNote
-from app.models.user import Patient
+from app.models.user import Patient, Doctor
 from app.core.config import settings
 from app.core.encryption import encrypt_bytes, decrypt_bytes
 from app.modules.ai.vision import vision_service
@@ -553,7 +553,23 @@ class AIFusion:
                 dominant_emotion = max(set(emotions_list), key=emotions_list.count)
                 context["visual"] = f"Patient appeared mostly {dominant_emotion}."
 
-        clinical_info = await medical_nlp_service.process_precise_scribe(full_transcript, context=context)
+        # ── SPECIALTY DISCOVERY ──────────────────────────────
+        specialty = None
+        if encounter.clinician_id and encounter.clinician_id != "System":
+            try:
+                from bson.objectid import ObjectId
+                if ObjectId.is_valid(encounter.clinician_id):
+                    doctor = await Doctor.get(PydanticObjectId(encounter.clinician_id))
+                else:
+                    doctor = await Doctor.find_one(Doctor.id == encounter.clinician_id)
+                
+                if doctor:
+                    specialty = doctor.specialization
+                    logger.info(f"Using specialty focus: {specialty} for encounter {encounter_id}")
+            except Exception as e:
+                logger.error(f"Failed to fetch doctor specialty: {e}")
+
+        clinical_info = await medical_nlp_service.process_precise_scribe(full_transcript, context=context, specialty=specialty)
         soap_data = clinical_info.get("soap", {})
         
         # Update encounter with the new SOAP note
@@ -697,6 +713,9 @@ class AIFusion:
                 "diagnoses": clinical_info.get("extracted_diagnosis", []),
                 "billing_codes": clinical_info.get("extracted_billing_codes", [])
             }
+        
+        # Add the identified problem specifically
+        insights["identified_problem"] = clinical_info.get("identified_problem", "")
         encounter.nlp_insights = insights
         await encounter.save()
         

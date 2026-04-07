@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 import openai
 from app.core.config import settings
 from app.modules.ai.icd10_lookup import icd10_service
+from app.modules.ai.specialty_prompts import SPECIALTY_GUIDELINES
 
 logger = logging.getLogger(__name__)
 
@@ -139,10 +140,16 @@ Your task is to provide a 100% FAITHFUL and EXHAUSTIVE extraction of the encount
 4. DO NOT suggest, assume, or add any information not present in the transcript.
 
 ---------------------------------------
+SPECIALTY CONTEXT:
+{specialty_focus}
+---------------------------------------
+
+---------------------------------------
 OUTPUT STRUCTURE (STRICT JSON)
 ---------------------------------------
 
 {
+  "identified_problem": "A concise, single-sentence identification of the patient's primary clinical problem or concern discovered during this conversation.",
   "clean_conversation": "A COMPLETE, UNBRIDGE-ABLE, and FAITHFUL record of the entire conversation. List every exchange. Only remove fillers like 'um', 'uh', 'hmm'. DO NOT summarize. Format: 'Doctor: [Text]' and 'Patient: [Text]'. Every single line from the transcript must be represented.",
   "subjective": {
     "chief_complaint": "The primary reason for the visit (use patient's exact words if available)",
@@ -165,7 +172,20 @@ OUTPUT STRUCTURE (STRICT JSON)
       "weight": "Exact value mentioned",
       "height": "",
       "bmi": "",
-      "blood_sugar": "Exact value mentioned (e.g. 140 mg/dL)"
+      "blood_sugar": "Exact value mentioned (e.g. 140 mg/dL)",
+      "egfr": "Exact value mentioned (mL/min/1.73m²)",
+      "creatinine": "Exact value mentioned (mg/dL)",
+      "bun": "Exact value mentioned (mg/dL)",
+      "urea": "Exact value mentioned",
+      "cystatin_c": "Exact value mentioned",
+      "crcl": "Exact value mentioned (24hr CrCl)",
+      "upcr": "Exact value mentioned (Urine Prot/Cr)"
+    },
+    "lab_results": {
+      "potassium": "Exact value mentioned",
+      "sodium": "Exact value mentioned",
+      "bicarbonate": "Exact value mentioned",
+      "hba1c": "Exact value mentioned"
     },
     "physical_examination": {
       "general_appearance": "Document ALL physical observations mentioned by the doctor",
@@ -1112,7 +1132,7 @@ class MedicalNLPService:
             logger.error(f"SOAP Note error: {e}")
             return await self._rule_based_soap_extraction(str(transcript))
 
-    async def process_precise_scribe(self, input_text: str, context: Optional[Dict] = None) -> Dict:
+    async def process_precise_scribe(self, input_text: str, context: Optional[Dict] = None, specialty: Optional[str] = None) -> Dict:
         """
         Processes raw transcript into clean NLP conversation and structured SOAP note.
         Follows the strict instructions for the "Production-Grade Ambient AI Scribe".
@@ -1237,6 +1257,10 @@ class MedicalNLPService:
             }
 
         try:
+            # ── SPECIALTY INJECTION ──────────────────────────────
+            specialty_focus = SPECIALTY_GUIDELINES.get(specialty, "Provide a standard comprehensive clinical note. Focus on all relevant clinical details.")
+            effective_prompt = PRECISE_SCRIBE_SYSTEM_PROMPT.replace("{specialty_focus}", specialty_focus)
+
             if self.client:
                 # Use a larger model if available, otherwise fallback
                 model_name = settings.OPENAI_API_MODEL
@@ -1248,7 +1272,7 @@ class MedicalNLPService:
                 response = await self.client.chat.completions.create(
                     model=model_name if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
                     messages=[
-                        {"role": "system", "content": PRECISE_SCRIBE_SYSTEM_PROMPT},
+                        {"role": "system", "content": effective_prompt},
                         {"role": "user", "content": f"INPUT:\n{full_input}"}
                     ],
                     response_format={"type": "json_object"},
@@ -1257,7 +1281,7 @@ class MedicalNLPService:
                 )
                 raw_data = json.loads(response.choices[0].message.content)
             elif self.ollama_url:
-                prompt = f"{PRECISE_SCRIBE_SYSTEM_PROMPT}\n\nTask: Process this input into JSON:\n{full_input}"
+                prompt = f"{effective_prompt}\n\nTask: Process this input into JSON:\n{full_input}"
                 response_text = await self._call_ollama(prompt, json_mode=True)
                 raw_data = json.loads(response_text)
             else:
@@ -1291,6 +1315,7 @@ class MedicalNLPService:
             # ---------------------------------------------------------------------------------
 
             data = {
+                "identified_problem": raw_data.get("identified_problem", ""),
                 "clean_conversation": raw_data.get("clean_conversation", ""),
                 "soap": {
                     "subjective": ensure_dict(raw_data.get("subjective")),

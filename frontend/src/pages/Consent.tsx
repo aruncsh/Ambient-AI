@@ -28,6 +28,7 @@ const Consent: React.FC = () => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [loading, setLoading] = useState(true);
     const [finalizing, setFinalizing] = useState(false);
+    const [hasExistingConsent, setHasExistingConsent] = useState(false);
     
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const signaturePadRef = useRef<SignaturePad | null>(null);
@@ -49,6 +50,10 @@ const Consent: React.FC = () => {
                 if (!selectedPatientId && pts && pts.length > 0) {
                     setSelectedPatientId(pts[0].id || pts[0]._id);
                     setPatientName(pts[0].name);
+                    setHasExistingConsent(!!pts[0].is_consent_given);
+                } else if (selectedPatientId && pts) {
+                    const p = pts.find((p: any) => (p.id || p._id) === selectedPatientId);
+                    if (p) setHasExistingConsent(!!p.is_consent_given);
                 }
                 
                 if (docs && docs.length > 0) {
@@ -225,7 +230,10 @@ const Consent: React.FC = () => {
                                             onChange={(e) => {
                                                 const p = patients.find(p => (p.id || p._id) === e.target.value);
                                                 setSelectedPatientId(e.target.value);
-                                                if (p) setPatientName(p.name);
+                                                if (p) {
+                                                    setPatientName(p.name);
+                                                    setHasExistingConsent(!!p.is_consent_given);
+                                                }
                                             }}
                                             className="flex-1 bg-transparent border-none text-slate-900 font-bold text-base outline-none cursor-pointer"
                                         >
@@ -238,12 +246,16 @@ const Consent: React.FC = () => {
                             <div className="p-8 bg-blue-50/50 border border-blue-100 rounded-2xl flex items-start gap-4">
                                 <AlertCircle size={20} className="text-blue-600 mt-1" />
                                 <p className="text-slate-700 font-medium leading-relaxed italic">
-                                    I, <span className="text-blue-600 font-bold">{patientName}</span>, hereby authorize the use of Ambient AI technology for clinical documentation of this session.
+                                    {hasExistingConsent ? (
+                                        <>Consent already obtained for <span className="text-blue-600 font-bold">{patientName}</span>. No further action needed.</>
+                                    ) : (
+                                        <>I, <span className="text-blue-600 font-bold">{patientName}</span>, hereby authorize the use of Ambient AI technology for clinical documentation of this session.</>
+                                    )}
                                 </p>
                             </div>
 
-                            <button onClick={() => setStep(2)} className="h-16 w-full rounded-2xl bg-slate-900 text-white font-bold text-lg hover:bg-blue-600 transition-all shadow-xl shadow-slate-900/10 flex items-center justify-center gap-3">
-                                Proceed to Consent <ChevronRight size={20} />
+                            <button onClick={() => hasExistingConsent ? handleFinalize() : setStep(2)} className="h-16 w-full rounded-2xl bg-slate-900 text-white font-bold text-lg hover:bg-blue-600 transition-all shadow-xl shadow-slate-900/10 flex items-center justify-center gap-3">
+                                {hasExistingConsent ? "Start Clinical Session" : "Proceed to Consent"} <ChevronRight size={20} />
                             </button>
                         </motion.div>
                     )}

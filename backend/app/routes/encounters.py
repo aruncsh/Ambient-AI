@@ -115,6 +115,21 @@ async def create_encounter(data: EncounterCreate):
             clinician_id=data.clinician_id,
             consent_obtained=data.consent_obtained
         ).insert()
+
+        # Update patient consent record if patient_id is valid and consent obtained
+        if data.consent_obtained and data.patient_id and data.patient_id != "Anonymous":
+            from app.models.user import Patient
+            from beanie import PydanticObjectId
+            from bson.objectid import ObjectId
+            try:
+                if ObjectId.is_valid(data.patient_id):
+                    patient = await Patient.get(PydanticObjectId(data.patient_id))
+                    if patient:
+                        patient.is_consent_given = True
+                        await patient.save()
+            except Exception as e:
+                logger.error(f"Failed to update patient consent: {e}")
+
         return encounter
     except Exception as e:
         import uuid
