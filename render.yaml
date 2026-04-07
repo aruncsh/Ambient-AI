@@ -2,10 +2,11 @@ services:
   # Backend Service (FastAPI)
   - type: web
     name: ambient-ai-backend
-    env: docker
-    dockerContext: ./backend
-    dockerfilePath: ./backend/Dockerfile
-    plan: standard # Or free if available/preferred, though standard is safer for AI tasks
+    env: python
+    plan: free
+    rootDir: ./backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: MONGO_URL
         sync: false # User should provide this (e.g. MongoDB Atlas)
@@ -14,13 +15,12 @@ services:
       - key: ENCRYPTION_KEY
         value: c2VjcmV0LWtleS1tdXN0LWJlLTMyLWJ5dGVzLWxvbmctISEh # Update this in Prod!
       - key: WHISPER_PROVIDER
-        value: openai # Recommended for Render as local whisper is too heavy
+        value: openai # REQUIRED for Free Tier (Local Whisper exceeds 512MB RAM)
       - key: OPENAI_API_KEY
         sync: false
       - key: MEDICAL_NLP_PROVIDER
         value: llm
-      - key: PORT
-        value: 10000
+
 
   # Frontend Service (Static Site)
   - type: web

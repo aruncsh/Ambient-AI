@@ -38,29 +38,31 @@ git push origin main
 
 ---
 
-## ⚙️ Configuration Details
+## ⚙️ Configuration Details (Free Tier Optimized)
 
 ### Backend (`ambient-ai-backend`)
-- **Type**: Web Service (Docker)
-- **Port**: 10000 (Render default)
-- **Environment**: Set to use `openai` for Whisper and `llm` for NLP. This is recommended because local processing (Faster-Whisper) requires significant RAM/CPU which is expensive on cloud providers.
+- **Type**: Web Service (Python)
+- **Plan**: Free
+- **RAM Limit**: 512 MB
+- **Environment**: **MUST** use `openai` for transcription.
+    - Local transcription (`Faster-Whisper`) requires >2GB RAM and will crash the Free Tier service.
+    - Ensure `WHISPER_PROVIDER` is set to `openai` in the Render Dashboard.
 
 ### Frontend (`ambient-ai-frontend`)
-- **Type**: Static Site
+- **Type**: Static Site (Always Free)
 - **Build Command**: `npm install && npm run build`
 - **Publish Directory**: `frontend/dist`
-- **Auto-linking**: It automatically links to the backend URL via the `VITE_API_URL` variable.
+- **Auto-linking**: Automatically links to the backend URL.
 
 ---
 
-## ⚠️ Important Considerations for Production
+## ⚠️ Important Considerations for Free Tier
 
-### 1. File Storage
-The current backend stores audio recordings in the `backend/recordings` folder. On Render's Web Service (without a Disk), these files will be **wiped** whenever the service restarts.
-- **Solution**: For true production use, you should integrate AWS S3 or Google Cloud Storage for recordings.
+### 1. Cold Starts
+On the **Free Tier**, the backend service will "spin down" after 15 minutes of inactivity. The first request after a spin-down may take **30-50 seconds** to wake up.
 
-### 2. Startup Time
-If you are on the **Free Tier**, the backend service will "spin down" after inactivity. The first request after a spin-down may take ~30 seconds to respond.
+### 2. RAM Usage
+Avoid adding heavy local AI models or large libraries to the backend. The 512MB RAM limit is strict. Using OpenAI APIs offloads the heavy processing, keeping your service stable on the free plan.
 
 ### 3. WebSocket Support
 Render Web Services support WebSockets natively, which is critical for the "Live Stream" feature of Ambient AI.
