@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     
     # Security
     SECRET_KEY: str = "y-r_super_secret_key_change_in_prod"
-    ENCRYPTION_KEY: str = "r9xUqe4lisT2RVcGV3YE72oTi_oorwt5vv8Lu7COFt18="
+    ENCRYPTION_KEY: str = "xCaSmOjZGTsd9yF4VhYKE6L1dF9EOCX7u69ugupImY0="
     
     # Infrastructure
     MONGO_URL: str = "mongodb://localhost:27017/ambient_ai"
