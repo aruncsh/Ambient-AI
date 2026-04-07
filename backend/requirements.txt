@@ -21,3 +21,4 @@ reportlab
 bleak
 pydub
 email-validator
+huggingface_hub
