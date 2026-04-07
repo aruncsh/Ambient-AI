@@ -1,28 +1,32 @@
 import numpy as np
 import logging
-import torch
-import torchaudio
-import webrtcvad
 from datetime import datetime
-
-# Patch for torchaudio compatibility with SpeechBrain (torchaudio >= 2.1)
-if not hasattr(torchaudio, "list_audio_backends"):
-    torchaudio.list_audio_backends = lambda: []
-
 from typing import List, Dict, Optional
 import huggingface_hub
 
-# SpeechBrain compatibility patch for newer huggingface_hub
-_original_hf_hub_download = huggingface_hub.hf_hub_download
+# Try to import heavy dependencies
+try:
+    import torch
+    import torchaudio
+    import webrtcvad
+    from speechbrain.inference.speaker import EncoderClassifier
+    HAS_LOCAL_DIARIZATION = True
+except ImportError:
+    HAS_LOCAL_DIARIZATION = False
+    logging.getLogger(__name__).warning("Local diarization dependencies (torch, webrtcvad, speechbrain) not found. Diarization will be disabled.")
 
-def patched_hf_hub_download(*args, **kwargs):
-    if "use_auth_token" in kwargs:
-        kwargs["token"] = kwargs.pop("use_auth_token")
-    return _original_hf_hub_download(*args, **kwargs)
+# Patch for torchaudio and speechbrain compatibility
+if HAS_LOCAL_DIARIZATION:
+    if not hasattr(torchaudio, "list_audio_backends"):
+        torchaudio.list_audio_backends = lambda: []
 
-huggingface_hub.hf_hub_download = patched_hf_hub_download
-
-from speechbrain.inference.speaker import EncoderClassifier
+    # SpeechBrain compatibility patch for newer huggingface_hub
+    _original_hf_hub_download = huggingface_hub.hf_hub_download
+    def patched_hf_hub_download(*args, **kwargs):
+        if "use_auth_token" in kwargs:
+            kwargs["token"] = kwargs.pop("use_auth_token")
+        return _original_hf_hub_download(*args, **kwargs)
+    huggingface_hub.hf_hub_download = patched_hf_hub_download
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +35,22 @@ class DiarizationService:
         self.encoder = None
         self.speaker_embeddings = [] # List of (embedding, role)
         self.threshold = 0.7 # Conservative threshold for distinct speaker detection
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        # Real-time state
-        self.vad = webrtcvad.Vad(3) # Aggressiveness 3
+        if HAS_LOCAL_DIARIZATION:
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.vad = webrtcvad.Vad(3) # Aggressiveness 3
+        else:
+            self.device = "cpu"
+            self.vad = None
+            
         self.current_role = "Clinician"
         self.silence_start_time = None
         self.is_speaking = False
 
     def _get_encoder(self):
+        if not HAS_LOCAL_DIARIZATION:
+            return None
+            
         if self.encoder is None:
             try:
                 logger.info(f"Loading SpeechBrain ECAPA-TDNN model on {self.device}...")
@@ -56,19 +67,23 @@ class DiarizationService:
     def update_speaker_toggle(self, audio_pcm: bytes, sample_rate: int = 16000) -> str:
         """
         Uses WebRTC VAD to detect pauses > 800ms and toggles speaker.
-        Requirement: alternate speaker labels between "Clinician" and "Patient" on >800ms pause.
         """
+        if not HAS_LOCAL_DIARIZATION or self.vad is None:
+            return self.current_role
+
         # webrtcvad expects 10, 20 or 30ms frames
-        # At 16000Hz, 30ms is 480 samples = 960 bytes (16-bit)
         frame_duration_ms = 30
         frame_size = int(sample_rate * frame_duration_ms / 1000) * 2
         
         has_speech = False
         for i in range(0, len(audio_pcm) - frame_size, frame_size):
             frame = audio_pcm[i:i + frame_size]
-            if self.vad.is_speech(frame, sample_rate):
-                has_speech = True
-                break
+            try:
+                if self.vad.is_speech(frame, sample_rate):
+                    has_speech = True
+                    break
+            except:
+                continue
         
         now = datetime.utcnow()
         if not has_speech:
@@ -80,7 +95,7 @@ class DiarizationService:
                 if pause_duration > 2000:
                     # Toggle role
                     self.current_role = "Patient" if self.current_role == "Clinician" else "Clinician"
-                    self.silence_start_time = None # Reset so we don't toggle repeatedly
+                    self.silence_start_time = None
                     logger.info(f"VAD: Speaker toggled to {self.current_role} after {pause_duration:.0f}ms pause")
         else:
             self.is_speaking = True
@@ -92,9 +107,12 @@ class DiarizationService:
         """
         Identifies speaker based on Voice Embeddings (X-vectors/ECAPA-TDNN).
         """
+        if not HAS_LOCAL_DIARIZATION:
+            return "Speaker 1"
+
         encoder = self._get_encoder()
         if not encoder:
-            return "Speaker 1" # Fallback
+            return "Speaker 1"
 
         try:
             # Convert bytes to tensor
