@@ -15,12 +15,8 @@ openai>=1.30.0
 mediapipe>=0.10.0
 opencv-python-headless>=4.9.0
 python-dotenv>=1.0.0
-faster-whisper
-speechbrain
 scipy
-torchaudio
 rapidfuzz
-webrtcvad-mirror
 reportlab
 bleak
 pydub
