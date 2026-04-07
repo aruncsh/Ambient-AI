@@ -61,7 +61,7 @@ class ClinicalAssistantService:
 
         if settings.OPENAI_API_KEY:
             self.client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-            self.model_name = "gpt-4o-mini"
+            self.model_name = settings.OPENAI_API_MODEL or "gpt-3.5-turbo"
         elif settings.GROQ_API_KEY:
             self.client = openai.AsyncOpenAI(
                 api_key=settings.GROQ_API_KEY,

@@ -3,12 +3,18 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     CheckCircle2, Sparkles, Wand2, Mic,
-    Save, FileCheck, ShieldCheck, ChevronRight, Download, Activity
+    Save, FileCheck, ShieldCheck, ChevronRight, Download, Activity,
+    Stethoscope, FileText, Pill, ClipboardList, TrendingUp, AlertCircle,
+    RotateCcw, History as HistoryIcon, Clock, Users, Fingerprint, Globe, MapPin, 
+    Zap, Cpu, BarChart3, ShieldAlert, ArrowRight, Verified, Loader2,
+    Heart, Thermometer, Wind, Droplets, Scale, Gauge
 } from 'lucide-react';
 
 const Review: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
+    
+    // Core Clinical State
     const [soap, setSoap] = useState({
         subjective: "" as any,
         patient_history: "" as any,
@@ -17,44 +23,52 @@ const Review: React.FC = () => {
         plan: "" as any,
         follow_up: "" as any,
         billing: "" as any,
+        ros: "" as any,
         clean_transcript: ""
     });
+
     const [vitals, setVitals] = useState<any>({
-        heart_rate: { value: null },
-        blood_pressure: { value: null },
-        oxygen_saturation: { value: null },
-        temperature: { value: null },
-        respiratory_rate: { value: null },
-        weight: { value: null },
-        blood_sugar: { value: null }
+        heart_rate: { value: null, label: "Heart Rate", unit: "bpm", icon: <Heart size={20} className="text-rose-500" /> },
+        blood_pressure: { value: null, label: "Blood Pressure", unit: "mmHg", icon: <Activity size={20} className="text-emerald-500" /> },
+        oxygen_saturation: { value: null, label: "SpO2", unit: "%", icon: <Droplets size={20} className="text-blue-500" /> },
+        temperature: { value: null, label: "Temp", unit: "°F", icon: <Thermometer size={20} className="text-orange-500" /> },
+        respiratory_rate: { value: null, label: "Resp Rate", unit: "/min", icon: <Wind size={20} className="text-sky-500" /> },
+        weight: { value: null, label: "Weight", unit: "kg", icon: <Scale size={20} className="text-slate-500" /> },
+        blood_sugar: { value: null, label: "Blood Sugar", unit: "mg/dL", icon: <Gauge size={20} className="text-purple-500" /> }
     });
 
     const [automation, setAutomation] = useState({
-        lab_orders: [] as string[],
+        lab_orders: [] as any[],
         prescriptions: [] as any[],
         billing_codes: [] as any[],
-        patient_name: "",
+        patient_name: "Anonymous Patient",
         invoice_id: "",
-        billing_amount: 0 as number,
+        billing_amount: 500,
         billing_currency: "INR",
         fhir_id: "",
         fhir_status: "pending"
     });
-    const [transcript, setTranscript] = useState<any[]>([]);
 
+    const [transcript, setTranscript] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isRefining, setIsRefining] = useState<string | null>(null);
+    const [nlpInsights, setNlpInsights] = useState<{
+        symptoms: string[],
+        diagnoses: string[],
+        billing_codes: any[]
+    }>({ symptoms: [], diagnoses: [], billing_codes: [] });
 
     useEffect(() => {
-        const fetchSOAP = async () => {
+        const fetchEncounter = async () => {
             try {
-                // 0. Fetch the encounter first to see its status and saved results
-                const encounterResp = await fetch(`/api/v1/encounters/${id}`);
-                const encounterData = await encounterResp.json();
+                const resp = await fetch(`/api/v1/encounters/${id}`);
+                const data = await resp.json();
 
-                // 1. If SOAP already exists in the database, use it immediately (preserving manual edits)
-                if (encounterData && encounterData.soap_note) {
-                    const sn = encounterData.soap_note;
+                if (!data) return;
+
+                // Sync SOAP Note
+                if (data.soap_note) {
+                    const sn = data.soap_note;
                     setSoap({
                         subjective: sn.subjective || "",
                         patient_history: sn.patient_history || "",
@@ -63,190 +77,134 @@ const Review: React.FC = () => {
                         plan: sn.plan || "",
                         follow_up: sn.follow_up || "",
                         billing: sn.billing || "",
+                        ros: sn.ros || "",
                         clean_transcript: sn.clean_transcript || ""
                     });
+                }
+
+                // Sync Vitals (Merge IoT and AI-extracted)
+                setVitals((prev: any) => {
+                    const merged = { ...prev };
                     
-                    setAutomation({
-                        lab_orders: encounterData.lab_orders || [],
-                        prescriptions: encounterData.prescriptions || [],
-                        billing_codes: encounterData.billing_codes || [],
-                        patient_name: encounterData.patient_name || "Anonymous",
-                        invoice_id: encounterData.invoice_id || "",
-                        billing_amount: encounterData.billing_amount || 0,
-                        billing_currency: encounterData.billing_currency || "INR",
-                        fhir_id: encounterData.fhir_id || "",
-                        fhir_status: encounterData.fhir_status || (encounterData.status === 'completed' ? 'synced' : 'pending')
-                    });
-                    if (encounterData.vitals) {
-                        setVitals(encounterData.vitals);
-                    }
-                    setTranscript(encounterData.transcript || []);
-                    setLoading(false);
-                    return;
-                }
-
-                // 2. Otherwise, trigger generation if needed (polling loop)
-                let attempts = 0;
-                let dataProcessed = false;
-
-                while (attempts < 10 && !dataProcessed) {
-                    const genResp = await fetch(`/api/v1/summary/${id}/generate`, {
-                        method: 'POST'
-                    });
-                    const summaryData = await genResp.json();
-
-                    if (summaryData && summaryData.status === 'processing') {
-                        setLoading(true);
-                        attempts++;
-                        await new Promise(r => setTimeout(r, 4000));
-                        continue;
-                    }
-
-                    dataProcessed = true;
-
-                    const encounterResp = await fetch(`/api/v1/encounters/${id}`);
-                    const encounterData = await encounterResp.json();
-
-                    if (summaryData) {
-                        const soapNote = summaryData.soap || summaryData;
-                        setSoap({
-                            subjective: soapNote.subjective || "",
-                            patient_history: soapNote.patient_history || "",
-                            objective: soapNote.objective || "",
-                            assessment: soapNote.assessment || "",
-                            plan: soapNote.plan || "",
-                            follow_up: soapNote.follow_up || "",
-                            billing: soapNote.billing || "",
-                            clean_transcript: soapNote.clean_transcript || ""
+                    // 1. Check live stream vitals
+                    if (data.vitals) {
+                        Object.entries(data.vitals).forEach(([key, val]: [string, any]) => {
+                            if (merged[key] && (val?.value !== null)) {
+                                merged[key].value = val.value;
+                                merged[key].source = "Live";
+                            }
                         });
                     }
-
-                    if (encounterData) {
-                        setAutomation({
-                            lab_orders: encounterData.lab_orders || summaryData.lab_orders || [],
-                            prescriptions: encounterData.prescriptions || summaryData.prescriptions || [],
-                            billing_codes: encounterData.billing_codes || summaryData.billing_codes || [],
-                            patient_name: encounterData.patient_name || "Anonymous",
-                            invoice_id: encounterData.invoice_id || summaryData.invoice_id || "",
-                            billing_amount: (encounterData.billing_amount !== undefined && encounterData.billing_amount !== null) ? encounterData.billing_amount : (summaryData.billing_amount || 0),
-                            billing_currency: encounterData.billing_currency || summaryData.currency || "INR",
-                            fhir_id: encounterData.fhir_id || summaryData.fhir_id || "",
-                            fhir_status: encounterData.fhir_status || summaryData.fhir_status || "pending"
-                        });
-
-                        if (encounterData.transcript) {
-                            setTranscript(encounterData.transcript);
+                    
+                    // 2. Check AI-extracted vitals
+                    const ai_vitals = data.soap_note?.objective?.vitals || data.soap_note?.extracted_vitals || {};
+                    Object.entries(ai_vitals).forEach(([key, val]) => {
+                        if (merged[key] && !merged[key].value && val) {
+                            merged[key].value = val;
+                            merged[key].source = "AI";
                         }
-                        if (encounterData.vitals) {
-                            setVitals(encounterData.vitals);
-                        }
-                    }
-                }
+                    });
+                    return merged;
+                });
+
+                // Sync Automation
+                setAutomation({
+                    lab_orders: data.lab_orders || [],
+                    prescriptions: data.prescriptions || [],
+                    billing_codes: data.billing_codes || [],
+                    patient_name: data.patient_name || "Anonymous Patient",
+                    invoice_id: data.invoice_id || "",
+                    billing_amount: data.billing_amount || 500,
+                    billing_currency: data.billing_currency || "INR",
+                    fhir_id: data.fhir_id || "",
+                    fhir_status: data.fhir_status || (data.status === 'completed' ? 'synced' : 'pending')
+                });
+
+                if (data.nlp_insights) setNlpInsights(data.nlp_insights);
+                setTranscript(data.transcript || []);
+                setLoading(false);
             } catch (err) {
-                console.error("Failed to fetch SOAP:", err);
+                console.error("Fetch failed:", err);
             } finally {
                 setLoading(false);
             }
         };
 
-        if (id && id !== 'demo' && id !== 'new' && id !== 'undefined' && !id.includes('undefined')) {
-            fetchSOAP();
-        } else if (id === 'demo' || id === 'new') {
-            setSoap({
-                subjective: "This is a demo subjective note. In a real session, your spoken words would appear here.",
-                patient_history: "No history for demo.",
-                objective: "Vitals: Heart Rate 72 BPM, SpO2 98%, BP 120/80.",
-                assessment: "General evaluation (Demo).",
-                plan: "Continue routine care.",
-                follow_up: { follow_up_timeline: "1 week", warning_signs: ["Severe pain", "Fever"], referrals: "None" },
-                billing: { cpt_codes: [] },
-                clean_transcript: "Doctor: Hello, how are you? Patient: I am fine, thank you."
-            });
-            setVitals({
-                heart_rate: { value: "72 bpm" },
-                blood_pressure: { value: "120/80 mmHg" },
-                oxygen_saturation: { value: "98%" },
-                temperature: { value: "98.6 F" },
-                respiratory_rate: { value: "16/min" }
-            });
-            setLoading(false);
+        if (id && id !== 'demo' && !id.includes('undefined')) {
+            fetchEncounter();
         }
     }, [id]);
 
     const formatSoapValue = (val: any): string => {
         if (val === null || val === undefined) return "";
         if (typeof val === 'string') return val;
+        
         if (Array.isArray(val)) {
             return val.map(item => {
                 if (typeof item === 'object' && item !== null) {
-                    const extracted = item.code || item.name || item.medication || item.test_name;
-                    if (extracted) return extracted;
-                    if (Object.values(item).some(v => v !== "" && v !== null && v !== undefined)) return JSON.stringify(item);
-                    return null;
+                    return item.code || item.name || item.medication || item.test_name || JSON.stringify(item);
                 }
                 return String(item);
             }).filter(Boolean).join("\n");
         }
-        if (typeof val === 'object') {
-            return Object.entries(val)
-                .map(([k, v]) => {
-                    const label = k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                    if (Array.isArray(v)) {
-                        const items = v.map(item => {
-                            if (typeof item === 'object' && item !== null) {
-                                const extracted = item.code || item.name || item.medication || item.test_name;
-                                if (extracted) return extracted;
-                                if (Object.values(item).some(val => val !== "" && val !== null && val !== undefined)) return JSON.stringify(item);
-                                return null;
-                            }
-                            return String(item);
-                        }).filter(Boolean).join(", ");
-                        return items ? `${label}: ${items}` : null;
-                    }
-                    if (typeof v === 'object' && v !== null) {
-                        const subItems = Object.entries(v).map(([sk, sv]) => {
-                            const subLabel = sk.replace(/_/g, ' ').toUpperCase();
-                            return `${subLabel}: ${typeof sv === 'object' ? JSON.stringify(sv) : sv}`;
-                        }).filter(Boolean).join("\n  ");
-                        return subItems ? `${label}:\n  ` + subItems : null;
-                    }
-                    return v ? `${label}: ${v}` : null;
-                })
-                .filter(Boolean)
-                .join("\n\n");
+        
+        if (typeof val === 'object' && val !== null) {
+            return Object.entries(val).map(([k, v]) => {
+                if (!v || (Array.isArray(v) && v.length === 0)) return "";
+                
+                const isVitalSection = k.toLowerCase().includes('vitals');
+                const displayLabel = k.replace(/_/g, ' ').toUpperCase();
+                let sectionContent = "";
+                
+                if (Array.isArray(v)) {
+                    sectionContent = v.map(item => typeof item === 'object' ? JSON.stringify(item) : String(item)).join(", ");
+                } else if (typeof v === 'object' && v !== null) {
+                    sectionContent = Object.entries(v)
+                        .filter(([_, vv]) => isVitalSection || (vv !== null && vv !== undefined && vv !== ""))
+                        .map(([vk, vv]) => `${vk.replace(/_/g, ' ')}: ${vv || '---'}`)
+                        .join(", ");
+                } else {
+                    sectionContent = String(v);
+                }
+                
+                if (sectionContent || isVitalSection) {
+                    return `${displayLabel}: ${sectionContent}`;
+                }
+                return "";
+            }).filter(Boolean).join("\n");
         }
+        
         return String(val);
     };
 
     const saveRefinement = async () => {
         setLoading(true);
         try {
-            const resp = await fetch(`/api/v1/summary/${id}/update`, {
+            // Strip UI-only components (icons) from vitals to avoid circular JSON error
+            const cleanVitals = Object.entries(vitals).reduce((acc: any, [key, data]: [string, any]) => {
+                acc[key] = {
+                    value: data.value,
+                    label: data.label,
+                    unit: data.unit,
+                    source: data.source
+                };
+                return acc;
+            }, {});
+
+            await fetch(`/api/v1/summary/${id}/update`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     soap_note: soap,
-                    vitals: vitals,
+                    vitals: cleanVitals,
                     billing_codes: automation.billing_codes,
                     patient_name: automation.patient_name
                 })
             });
-            const result = await resp.json();
-            if (result.status === 'success') {
-                // Update local automation state with backend calculated totals
-                setAutomation(prev => ({ 
-                    ...prev, 
-                    billing_codes: result.billing_codes || prev.billing_codes,
-                    billing_amount: result.billing_amount !== undefined ? result.billing_amount : prev.billing_amount,
-                    billing_currency: result.billing_currency || prev.billing_currency,
-                    invoice_id: result.invoice_id || prev.invoice_id
-                }));
-                alert("Encounter signed and synchronized with EHR.");
-                navigate('/history');
-            }
+            navigate('/history');
         } catch (err) {
-            console.error("Failed to save refinement:", err);
-            alert("Error saving refinements. Please try again.");
+            console.error("Save failed:", err);
+            alert("Error saving refinements.");
         } finally {
             setLoading(false);
         }
@@ -254,293 +212,302 @@ const Review: React.FC = () => {
 
     const refineWithAI = (section: string) => {
         setIsRefining(section);
-        setTimeout(() => {
-            setSoap(prev => ({
-                ...prev,
-                [section]: prev[section as keyof typeof soap] + " [AI Enhanced clinical specificity]"
-            }));
-            setIsRefining(null);
-        }, 1200);
+        setTimeout(() => setIsRefining(null), 1500);
     };
 
+    if (loading) {
+        return (
+            <div className="h-screen bg-slate-50 flex flex-col items-center justify-center gap-6">
+                <div className="relative">
+                    <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                    <Sparkles className="absolute -top-2 -right-2 text-blue-500 animate-pulse" size={24} />
+                </div>
+                <div className="text-center space-y-2">
+                    <p className="font-bold text-slate-800 uppercase tracking-[0.2em] text-xs">Synthesizing Clinical Record</p>
+                    <p className="text-slate-400 text-sm font-medium animate-pulse">Ambient AI is processing multi-modal signals...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="max-w-[1400px] mx-auto px-6 py-16 space-y-12"
-        >
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 border-b border-white/5 pb-10">
-                <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-500 uppercase tracking-[0.2em]">
-                         <FileCheck size={14} /> Review Required
-                    </div>
-                    <div className="flex items-end gap-4">
-                        <h1 className="text-5xl font-bold tracking-tight text-white line-clamp-1">Clinical Review</h1>
-                        <div className="flex flex-col mb-1 min-w-[200px]">
-                            <span className="text-[9px] font-bold text-zinc-600 uppercase mb-1">Patient Name</span>
-                            <input 
-                                type="text"
-                                value={automation.patient_name}
-                                onChange={(e) => setAutomation({...automation, patient_name: e.target.value})}
-                                className="bg-white/5 border-none text-zinc-400 text-sm font-medium focus:ring-1 focus:ring-indigo-500/30 rounded px-2 py-0.5"
-                            />
-                        </div>
-                    </div>
-                </div>
-                
-                <div className="flex flex-col items-end gap-3">
-                    <div className={`flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-bold transition-all ${
-                        automation.fhir_status === 'synced' 
-                        ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' 
-                        : automation.fhir_status === 'failed' 
-                        ? 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-                        : 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20'
-                    }`}>
-                        {automation.fhir_status === 'synced' ? <ShieldCheck size={16} /> : <Sparkles size={16} />}
-                        {automation.fhir_status === 'synced' ? 'SYNCED WITH EHR' : automation.fhir_status === 'failed' ? 'EHR SYNC FAILED' : 'SYNCING TO EHR...'}
-                    </div>
-                    {automation.fhir_id && (
-                        <span className="text-[10px] font-mono text-zinc-600 uppercase tracking-widest">
-                            FHIR_ID: {automation.fhir_id}
-                        </span>
-                    )}
-                </div>
-            </header>
-
-            <div className="grid grid-cols-12 gap-12">
-                {/* Clean SOAP Sections */}
-                <div className="col-span-12 lg:col-span-8 space-y-8">
-                    {/* Cleaned NLP Conversation Section (Now Editable) */}
-                    {soap.clean_transcript && (
-                        <motion.div 
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="bg-indigo-600/5 rounded-3xl p-8 border border-indigo-500/10 hover:border-indigo-500/20 transition-all group"
-                        >
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-500">
-                                    Cleaned NLP Conversation
-                                </h3>
-                                <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-500">
-                                    <Sparkles size={12} className="text-indigo-400" /> Click to Edit
+        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-100 selection:text-blue-900">
+            <div className="max-w-[1600px] mx-auto px-6 py-10">
+                <div className="flex flex-col lg:flex-row gap-10">
+                    
+                    {/* LEFT SIDEBAR: DASHBOARD CONSOLE */}
+                    <div className="lg:w-80 shrink-0 space-y-8">
+                        <div className="bg-white rounded-[2.5rem] p-8 shadow-xl shadow-slate-200/50 border border-white space-y-8 sticky top-10">
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-600/30">
+                                        <Verified size={20} />
+                                    </div>
+                                    <h2 className="text-xl font-bold tracking-tight">Review Core</h2>
                                 </div>
-                            </div>
-                            <textarea 
-                                value={soap.clean_transcript} 
-                                onChange={(e) => setSoap({...soap, clean_transcript: e.target.value})}
-                                className="w-full min-h-[250px] bg-transparent border-0 text-xl leading-relaxed text-zinc-200 focus:ring-0 resize-none p-0 font-medium"
-                            />
-                        </motion.div>
-                    )}
-
-                    {/* Vitals Section */}
-                    <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-emerald-600/5 rounded-3xl p-8 border border-emerald-500/10 hover:border-emerald-500/20 transition-all group"
-                    >
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-500">
-                                Extracted Vitals
-                            </h3>
-                            <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-500">
-                                <Activity size={12} className="text-emerald-400" /> Auto-captured
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {Object.entries(vitals).map(([key, data]: [string, any]) => (
-                                <div key={key} className="space-y-2 bg-white/5 p-4 rounded-2xl border border-white/5 hover:border-white/10 transition-all">
-                                    <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-[0.2em] block">
-                                        {key.replace(/_/g, ' ')}
-                                    </label>
-                                    <textarea 
-                                        rows={2}
-                                        value={data?.value || ""}
-                                        placeholder="Add value or clinical note..."
-                                        onChange={(e) => setVitals({...vitals, [key]: { ...data, value: e.target.value }})}
-                                        className="w-full bg-transparent border-0 px-0 py-1 text-white font-medium focus:ring-0 transition-all resize-none text-sm placeholder:text-zinc-700"
+                                <div className="p-4 rounded-3xl bg-slate-50 border border-slate-100 space-y-1">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">Session Ref</p>
+                                    <p className="text-sm font-bold text-slate-900">#{id?.slice(-8).toUpperCase()}</p>
+                                </div>
+                                <div className="p-4 rounded-3xl bg-slate-50 border border-slate-100 space-y-1">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">Patient Participant</p>
+                                    <input 
+                                        type="text" 
+                                        value={automation.patient_name} 
+                                        onChange={(e) => setAutomation({...automation, patient_name: e.target.value})}
+                                        className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold text-slate-900"
                                     />
                                 </div>
-                            ))}
-                        </div>
-                    </motion.div>
+                            </div>
 
-                    {Object.entries(soap).filter(([k]) => k !== 'clean_transcript').map(([key, value], idx) => (
-                        <motion.div 
-                            key={key}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: idx * 0.1 }}
-                            className="bg-zinc-900/20 rounded-3xl p-8 border border-white/5 hover:border-white/10 transition-all group"
-                        >
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">
-                                    {key}
-                                </h3>
+                            <div className="space-y-3">
                                 <button 
-                                    onClick={() => refineWithAI(key)}
-                                    className="text-indigo-400 hover:text-indigo-300 flex items-center gap-2 text-[10px] font-bold transition-all opacity-0 group-hover:opacity-100"
+                                    onClick={saveRefinement}
+                                    className="w-full py-5 rounded-[2rem] bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all shadow-xl shadow-blue-600/20 flex items-center justify-center gap-3 active:scale-95"
                                 >
-                                    <Wand2 size={12} /> Auto-refine
+                                    <FileCheck size={20} />
+                                    <span>Sign & Archive</span>
+                                </button>
+                                <button 
+                                    onClick={() => navigate('/history')}
+                                    className="w-full py-5 rounded-[2rem] bg-slate-100 text-slate-900 font-bold hover:bg-slate-200 transition-all flex items-center justify-center gap-3"
+                                >
+                                    <RotateCcw size={18} />
+                                    <span>Back to History</span>
+                                </button>
+                                <button 
+                                    onClick={() => navigate('/')}
+                                    className="w-full py-3 rounded-[1.5rem] text-slate-400 text-xs font-bold hover:text-slate-600 transition-all"
+                                >
+                                    Discard Session
                                 </button>
                             </div>
 
-                            <div className="relative">
-                                <textarea 
-                                    value={formatSoapValue(value)} 
-                                    onChange={(e) => setSoap({...soap, [key]: e.target.value})}
-                                    className="w-full min-h-[140px] bg-transparent border-0 text-xl leading-relaxed text-zinc-200 focus:ring-0 resize-none p-0 font-medium placeholder:text-zinc-800"
-                                />
-                                <AnimatePresence>
-                                    {isRefining === key && (
-                                        <motion.div 
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            exit={{ opacity: 0 }}
-                                            className="absolute inset-0 bg-zinc-950/80 backdrop-blur-md flex flex-col items-center justify-center rounded-2xl"
-                                        >
-                                            <Sparkles className="text-indigo-500 mb-3 animate-pulse" size={24} />
-                                            <span className="text-[10px] font-bold tracking-widest text-indigo-400">ANALYZING MEDICAL CONTEXT...</span>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
+                            <div className="pt-6 border-t border-slate-100 space-y-5">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">EHR Integration</span>
+                                        <span className="text-sm font-bold text-emerald-600 uppercase tracking-tighter">{automation.fhir_status}</span>
+                                    </div>
+                                    <Globe size={18} className="text-emerald-400" />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <div className="flex flex-col">
+                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Consultation Fee</span>
+                                        <span className="text-sm font-bold text-blue-600">{automation.billing_currency} {automation.billing_amount.toLocaleString()}</span>
+                                    </div>
+                                    <BarChart3 size={18} className="text-blue-400" />
+                                </div>
                             </div>
-                        </motion.div>
-                    ))}
-                </div>
+                        </div>
+                    </div>
 
-                {/* Refined Sidebar */}
-                <div className="col-span-12 lg:col-span-4 space-y-8">
-                    <div className="p-8 rounded-3xl bg-indigo-600/5 border border-indigo-500/10">
-                        <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-white">
-                            <Sparkles className="text-indigo-500" size={20} /> Automated Results
-                        </h3>
-                        <div className="space-y-4">
-                            {automation.lab_orders.length > 0 && (
-                                <div className="space-y-2">
-                                    <div className="text-[10px] uppercase font-bold text-zinc-500">Lab Orders</div>
-                                    {automation.lab_orders.map((o: any, i: number) => (
-                                        <div key={i} className="p-3 rounded-xl bg-white/5 border border-white/5 text-xs text-zinc-300 flex items-center gap-2">
-                                            <div className="w-1 h-1 rounded-full bg-indigo-500" /> 
-                                            {typeof o === 'object' ? (o.test_name || JSON.stringify(o)) : String(o)}
+                    {/* MAIN CONTENT AREA */}
+                    <div className="flex-1 space-y-12">
+                        
+                        {/* THE PHYSIOLOGICAL CONSOLE (UNIFIED VITALS) */}
+                        <section className="bg-white rounded-[3rem] p-10 shadow-xl shadow-slate-200/50 border border-white space-y-10">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                                <div className="space-y-1">
+                                    <h3 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-3">
+                                        <Activity size={28} className="text-rose-500" /> Physiological Hub
+                                    </h3>
+                                    <p className="text-slate-400 text-sm font-medium">Unified biometrics from IoT stream and Clinical Extraction</p>
+                                </div>
+                                <div className="px-5 py-2.5 rounded-2xl bg-slate-900 text-white flex items-center gap-3">
+                                    <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                                    <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Live Intelligence Active</span>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-6">
+                                {Object.entries(vitals).map(([key, data]: [string, any]) => (
+                                    <div key={key} className="relative group">
+                                        <div className={`p-6 rounded-[2rem] border transition-all duration-300 ${data.value ? 'bg-slate-50 border-slate-200 shadow-sm' : 'bg-slate-50/30 border-dashed border-slate-200'}`}>
+                                            <div className="mb-4 bg-white w-10 h-10 rounded-2xl flex items-center justify-center shadow-sm">
+                                                {data.icon}
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate">{data.label}</p>
+                                                <div className="flex items-baseline gap-1">
+                                                    <span className={`text-xl font-black ${data.value ? 'text-slate-900' : 'text-slate-200'}`}>
+                                                        {data.value || '---'}
+                                                    </span>
+                                                    <span className="text-[10px] font-bold text-slate-400 lowercase">{data.unit}</span>
+                                                </div>
+                                            </div>
+                                            {data.source && (
+                                                <div className="absolute top-4 right-4 text-[7px] font-black uppercase tracking-[0.2em] px-2 py-0.5 rounded bg-blue-600 text-white shadow-lg shadow-blue-600/20">
+                                                    {data.source}
+                                                </div>
+                                            )}
                                         </div>
-                                    ))}
-                                </div>
-                            )}
-                            {automation.billing_codes.length > 0 && (
-                                <div className="space-y-2">
-                                    <div className="text-[10px] uppercase font-bold text-zinc-500">Clinical CPT Codes</div>
-                                    <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 text-xs text-emerald-400 flex flex-wrap gap-2">
-                                        {automation.billing_codes.map((c: any, i: number) => (
-                                            <span 
-                                                key={typeof c === 'object' ? (String(c.code || i) + i) : c} 
-                                                className="bg-emerald-500/10 px-1.5 py-0.5 rounded font-mono cursor-help"
-                                                title={typeof c === 'object' ? `${c.system || ''}: ${c.description || ''}${c.reasoning ? ` (${c.reasoning})` : ''}` : String(c)}
-                                            >
-                                                {typeof c === 'object' ? (typeof c.code === 'object' ? (c.code.code || JSON.stringify(c.code)) : String(c.code)) : String(c)}
-                                            </span>
-                                        ))}
                                     </div>
-                                </div>
-                            )}
-                            {automation.prescriptions.length > 0 && automation.prescriptions[0].medication !== "N/A" && (
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center">
-                                        <div className="text-[10px] uppercase font-bold text-zinc-500">E-Prescripts</div>
-                                        <button 
-                                            onClick={() => window.open(`/api/v1/encounters/${id}/prescription-pdf`, '_blank')}
-                                            className="flex items-center gap-1.5 text-[9px] font-bold text-indigo-400 hover:text-indigo-300 transition-all border border-indigo-500/20 px-2 py-1 rounded-md"
-                                        >
-                                            <Download size={12} /> PDF
-                                        </button>
+                                ))}
+                            </div>
+                        </section>
+
+                        <div className="grid grid-cols-1 xl:grid-cols-12 gap-12">
+                            
+                            {/* LEFT COLUMN: CORE DOCUMENTATION */}
+                            <div className="xl:col-span-8 space-y-12">
+                                <section className="space-y-6">
+                                    <div className="flex items-center justify-between px-6">
+                                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.3em]">SOAP Master Record</h4>
+                                        <div className="flex items-center gap-2 text-slate-400">
+                                            <Clock size={14} />
+                                            <span className="text-[10px] font-bold">Auto-saved 2m ago</span>
+                                        </div>
                                     </div>
-                                    <div className="space-y-2">
-                                        {automation.prescriptions.map((p, i) => (
-                                            <div key={i} className="p-3 rounded-xl bg-white/5 border border-white/5 text-xs text-zinc-300">
-                                                <div className="font-bold">{p.medication}</div>
-                                                <div className="text-[10px] text-zinc-500">{p.dosage} - {p.frequency}</div>
+                                    <div className="space-y-8">
+                                        {Object.entries(soap).filter(([k]) => k !== 'clean_transcript').map(([key, value]) => {
+                                            const formattedValue = formatSoapValue(value);
+                                            // Core fields always show, others show if populated
+                                            if (!formattedValue && !['subjective', 'objective', 'assessment', 'plan', 'ros'].includes(key)) return null;
+                                            
+                                            return (
+                                                <div key={key} className="bg-white rounded-[3rem] p-2 shadow-xl shadow-slate-200/30 border border-white group relative">
+                                                    <div className="flex flex-col">
+                                                        <div className="px-8 py-6 flex items-center justify-between">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                                                                <h3 className="text-sm font-black text-slate-900 shadow-blue-500/10 uppercase tracking-widest">{key}</h3>
+                                                            </div>
+                                                            <button 
+                                                                onClick={() => refineWithAI(key)}
+                                                                className="opacity-0 group-hover:opacity-100 transition-all flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider active:scale-95"
+                                                            >
+                                                                <Zap size={14} className="text-yellow-400 fill-yellow-400" /> AI Refine
+                                                            </button>
+                                                        </div>
+                                                        <div className="px-10 pb-10 relative">
+                                                            <textarea 
+                                                                className="w-full bg-transparent border-none p-0 text-slate-600 text-base leading-relaxed focus:ring-0 resize-none font-medium min-h-[160px] placeholder:text-slate-200"
+                                                                placeholder={`Synthesizing ${key} content from stream...`}
+                                                                value={formattedValue}
+                                                                onChange={(e) => setSoap({...soap, [key]: e.target.value})}
+                                                            />
+                                                            <AnimatePresence>
+                                                                {isRefining === key && (
+                                                                    <motion.div 
+                                                                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                                                        className="absolute inset-0 bg-white/80 backdrop-blur-sm rounded-[2rem] flex items-center justify-center z-20"
+                                                                    >
+                                                                        <div className="flex flex-col items-center gap-4">
+                                                                            <Loader2 className="animate-spin text-blue-600" size={32} />
+                                                                            <span className="text-[10px] font-black text-slate-800 uppercase tracking-[0.3em] animate-pulse">Context Refinement</span>
+                                                                        </div>
+                                                                    </motion.div>
+                                                                )}
+                                                            </AnimatePresence>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </section>
+                            </div>
+
+                            {/* RIGHT COLUMN: INTELLIGENCE & EVIDENCE */}
+                            <div className="xl:col-span-4 space-y-12">
+                                
+                                {/* AI INTELLIGENCE HUB */}
+                                <section className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl shadow-blue-900/40 space-y-10 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 blur-[60px] rounded-full" />
+                                    <div className="space-y-1 relative">
+                                        <h3 className="text-xl font-bold flex items-center gap-3">
+                                            <Sparkles size={24} className="text-blue-400" /> Intelligence Hub
+                                        </h3>
+                                        <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em]">Contextual Insights</p>
+                                    </div>
+
+                                    <div className="space-y-8 relative">
+                                        {nlpInsights.diagnoses.length > 0 && (
+                                            <div className="space-y-4">
+                                                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Suggested Labels</label>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {nlpInsights.diagnoses.map((d, i) => (
+                                                        <div key={i} className="px-4 py-2 bg-white/5 border border-white/10 text-white rounded-2xl text-[10px] font-bold group hover:bg-blue-600 hover:border-blue-500 transition-all cursor-pointer">
+                                                            {typeof d === 'object' ? (d as any).name : String(d)}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {nlpInsights.symptoms.length > 0 && (
+                                            <div className="space-y-4">
+                                                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Detected Signs</label>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {nlpInsights.symptoms.map((s, i) => (
+                                                        <div key={i} className="p-3 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-bold flex items-center gap-3 hover:translate-x-1 transition-all">
+                                                            <div className="w-1 h-1 rounded-full bg-rose-500" />
+                                                            {typeof s === 'object' ? (s as any).name || (s as any).value : String(s)}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {automation.billing_codes.length > 0 && (
+                                            <div className="space-y-4 pt-8 border-t border-white/10">
+                                                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Coded Procedures</label>
+                                                <div className="grid grid-cols-1 gap-3">
+                                                    {automation.billing_codes.map((c, i) => (
+                                                        <div key={i} className="p-4 rounded-3xl bg-blue-500/5 border border-blue-500/10 flex items-center justify-between group hover:bg-blue-500/10 transition-all">
+                                                            <div className="flex flex-col">
+                                                                <span className="text-xs font-bold text-blue-400">{typeof c === 'object' ? c.code : c}</span>
+                                                                <span className="text-[9px] text-slate-400 font-medium truncate max-w-[120px]">{typeof c === 'object' ? c.description : 'Clinical Service'}</span>
+                                                            </div>
+                                                            <ArrowRight size={14} className="text-slate-600 group-hover:text-blue-400 transition-all" />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </section>
+
+                                {/* EVIDENCE STREAM (TRANSCRIPT) */}
+                                <section className="bg-white rounded-[3rem] p-10 shadow-xl border border-slate-200 h-[600px] flex flex-col">
+                                    <div className="flex items-center justify-between mb-8">
+                                        <h3 className="text-xl font-bold flex items-center gap-3">
+                                            <Mic size={24} className="text-rose-500" /> Evidence Stream
+                                        </h3>
+                                        <div className="px-3 py-1.5 rounded-2xl bg-slate-50 border border-slate-100 text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                            {transcript.length} Segments
+                                        </div>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto space-y-8 pr-4 custom-scrollbar">
+                                        {transcript.map((t, i) => (
+                                            <div key={i} className="group relative">
+                                                <div className="flex flex-col gap-2">
+                                                    <span className={`text-[9px] font-black uppercase tracking-widest transition-all ${t.speaker === 'Doctor' ? 'text-blue-600' : 'text-emerald-600 font-black'}`}>
+                                                        {t.speaker}
+                                                    </span>
+                                                    <div className={`p-5 rounded-[2rem] text-sm font-medium leading-relaxed transition-all ${t.speaker === 'Doctor' ? 'bg-blue-50/50 text-slate-700' : 'bg-emerald-50/50 text-slate-700 border border-emerald-100/50 shadow-sm shadow-emerald-100'}`}>
+                                                        {t.text}
+                                                    </div>
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
-                                </div>
-                            )}
-                            {!automation.lab_orders.length && !automation.billing_codes.length && (
-                                <p className="text-xs text-zinc-600 italic">No automated results generated for this session.</p>
-                            )}
+                                </section>
+                            </div>
                         </div>
-                    </div>
-
-                    <div className="p-8 rounded-[2.5rem] bg-zinc-950 border border-zinc-800 shadow-2xl relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-600/10 blur-[60px] rounded-full" />
-                        <h3 className="text-2xl font-bold mb-3 text-white">Finalize Record</h3>
-                        <p className="text-xs text-zinc-500 mb-8 leading-relaxed font-medium">
-                            I verify that these notes accurately reflect the clinical encounter. 
-                            Purging of raw media will commence upon sign-off.
-                        </p>
-                        <button 
-                            onClick={saveRefinement}
-                            disabled={loading}
-                            className="btn btn-primary w-full h-16 py-0 text-lg rounded-2xl flex items-center justify-center gap-3"
-                        >
-                            {loading ? (
-                                <>
-                                    <motion.div 
-                                        animate={{ rotate: 360 }}
-                                        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                                        className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full"
-                                    />
-                                    Authenticating...
-                                </>
-                            ) : (
-                                <>
-                                    <FileCheck size={20} />
-                                    Sign encounter
-                                </>
-                            )}
-                        </button>
-
-                        {/* Re-record button */}
-                        <motion.button
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.97 }}
-                            onClick={async () => {
-                                try {
-                                    await fetch(`/api/v1/encounters/${id}/reset`, { method: 'POST' });
-                                } catch (e) {
-                                    console.error("Reset failed:", e);
-                                }
-                                navigate(`/encounter/${id}`);
-                            }}
-                            className="mt-4 w-full h-12 flex items-center justify-center gap-2 rounded-2xl border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 hover:border-rose-500/50 transition-all text-sm font-bold tracking-wide"
-                        >
-                            <Mic size={16} />
-                            Re-record Encounter
-                        </motion.button>
-                    </div>
-
-                    <div className="p-8 rounded-3xl bg-zinc-900/40 border border-white/5 space-y-6">
-                        <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 mb-2"> Raw Transcript </h3>
-                        <div className="max-h-[400px] overflow-y-auto space-y-4 pr-3 scrollbar-hide">
-                            {transcript.length > 0 ? transcript.map((t, i) => (
-                                <div key={i} className="text-sm">
-                                    <span className={`font-bold text-[10px] uppercase tracking-tighter mr-2 ${t.speaker === 'Doctor' ? 'text-indigo-400' : 'text-emerald-400'}`}>
-                                        {t.speaker}:
-                                    </span>
-                                    <span className="text-zinc-400 font-medium"> {t.text} </span>
-                                </div>
-                            )) : (
-                                <p className="text-xs text-zinc-600 italic">No transcript recorded for this session.</p>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="flex flex-col items-center gap-2 opacity-30 px-10">
-                         <Save size={16} />
-                         <span className="text-[8px] font-bold tracking-[0.5em] text-center uppercase">Auto-save active</span>
                     </div>
                 </div>
             </div>
-        </motion.div>
+            
+            {/* INLINE CUSTOM SCROLLBAR CSS */}
+            <style>{`
+                .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+            `}</style>
+        </div>
     );
 };
 

@@ -31,8 +31,15 @@ class Settings(BaseSettings):
     TWILIO_TOKEN: Optional[str] = None
     TWILIO_NUMBER: Optional[str] = None
 
+    # CureSelect Microservice
+    CURESELECT_API_ENDPOINT: str = "https://services-api.a2zhealth.in/"
+    CURESELECT_API_CLIENT_ID: Optional[str] = "televet-v3-staging"
+    CURESELECT_API_CLIENT_SECRET: Optional[str] = "83fef8ec35f37968a9b684a5c400a54a"
+    CURESELECT_ENTITY_ID: str = "60a7b5e4c9e4b7001c8e2b5e" # Example fallback
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "allow"
 
 settings = Settings()

@@ -3,6 +3,12 @@ from typing import List, Optional
 from app.models.scheduling import Appointment
 from datetime import datetime
 from beanie import PydanticObjectId
+from app.modules.cureselect import cureselect_client
+from app.models.consult import Consult, ConsultParticipant
+import secrets
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -17,7 +23,37 @@ async def list_appointments(patient_id: Optional[str] = None, clinician_id: Opti
 
 @router.post("/", response_model=Appointment)
 async def create_appointment(appointment: Appointment):
-    await appointment.insert()
+    await appointment.insert() 
+    
+    if appointment.type == "Virtual":
+                # 1. Create External Consult via Microservice
+                consult_response = await cureselect_client.create_resource_consult(appointment.dict())
+                
+                if consult_response and isinstance(consult_response, dict):
+                    # The microservice returns 'consult_id' or 'id'
+                    consult_data = consult_response.get("data", {}) or consult_response
+                    consult_id = str(consult_data.get("consult_id") or consult_data.get("id"))
+                    
+                    # Store microservice ID and link
+                    ext_link = consult_response.get("consult_link") or consult_response.get("link")
+                    if ext_link:
+                        appointment.teleconsult_link = ext_link
+                    elif consult_id:
+                        appointment.teleconsult_link = f"https://services-api.a2zhealth.in/consult/{consult_id}"
+                    
+                    # Keep record of external ID for Ambient AI sync
+                    if consult_id:
+                        appointment.additional_info["external_id"] = consult_id
+                
+                await appointment.save()
+    
+    return appointment
+
+@router.get("/{id}", response_model=Appointment)
+async def get_appointment(id: str):
+    appointment = await Appointment.get(PydanticObjectId(id))
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
     return appointment
 
 @router.patch("/{id}", response_model=Appointment)

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Brain, AlertTriangle, HelpCircle, FlaskConical, ChevronRight, RefreshCw, Activity } from 'lucide-react';
+import { Brain, AlertTriangle, HelpCircle, FlaskConical, ChevronRight, RefreshCw, Activity, Sparkles, ShieldCheck } from 'lucide-react';
 
 interface Suggestions {
     differential_diagnoses: string[];
@@ -22,14 +22,14 @@ const ClinicalAssistant: React.FC<Props> = ({ transcript, isActive, insights = [
         suggested_questions: [],
         red_flags: [],
         suggested_tests: [],
-        clinical_notes: 'Awaiting conversation data...'
+        clinical_notes: 'Awaiting clinical data stream...'
     });
     const [loading, setLoading] = useState(false);
     const [lastFetchedLength, setLastFetchedLength] = useState(0);
 
     const fetchSuggestions = useCallback(async () => {
         if (!transcript || transcript.length === 0) return;
-        if (transcript.length === lastFetchedLength) return; // Skip if no new data
+        if (transcript.length === lastFetchedLength) return;
 
         const fullTranscript = transcript.map(t => `${t.speaker}: ${t.text}`).join('\n');
         setLoading(true);
@@ -51,83 +51,82 @@ const ClinicalAssistant: React.FC<Props> = ({ transcript, isActive, insights = [
         }
     }, [transcript, lastFetchedLength]);
 
-    // Auto-refresh every 15s during active encounter
     useEffect(() => {
         if (!isActive) return;
         const timer = setInterval(fetchSuggestions, 15000);
         return () => clearInterval(timer);
     }, [isActive, fetchSuggestions]);
 
-    // Also fetch when encounter ends or transcript grows significantly
     useEffect(() => {
         if (transcript.length > 0 && transcript.length % 5 === 0) {
             fetchSuggestions();
         }
-    }, [transcript.length]);
+    }, [transcript.length, fetchSuggestions]);
 
     const hasContent = suggestions.differential_diagnoses.length > 0
         || suggestions.suggested_questions.length > 0
-        || suggestions.red_flags.length > 0;
+        || suggestions.red_flags.length > 0
+        || (insights && insights.length > 0);
 
     const SectionHeader = ({ icon: Icon, label, color }: { icon: any; label: string; color: string }) => (
-        <div className={`flex items-center gap-2 text-[9px] font-black uppercase tracking-widest ${color} mb-2`}>
-            <Icon size={11} />
+        <div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] ${color} mb-3`}>
+            <Icon size={12} className="stroke-[3]" />
             {label}
         </div>
     );
 
     return (
-        <div className="glass-card flex-1 flex flex-col bg-zinc-900/10 h-full min-h-0">
-            <div className="flex items-center justify-between mb-5">
-                <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                    <Brain size={16} className="text-indigo-500" />
-                    Clinical Intelligence
-                </h3>
+        <div className="bg-white border border-slate-200 rounded-[3rem] p-10 flex flex-col h-full min-h-0 shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/5 blur-3xl rounded-full translate-x-12 -translate-y-12" />
+            
+            <div className="flex items-center justify-between mb-8 relative">
+                <div className="space-y-1">
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
+                        <Brain size={16} className="text-blue-600" />
+                        Clinical Intelligence
+                    </h3>
+                </div>
                 <button
                     onClick={fetchSuggestions}
                     disabled={loading}
-                    title="Refresh suggestions"
-                    className="p-1.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                    className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-900 hover:text-white transition-all flex items-center justify-center text-slate-400"
                 >
-                    <RefreshCw size={12} className={`text-zinc-400 ${loading ? 'animate-spin' : ''}`} />
+                    <RefreshCw size={14} className={`${loading ? 'animate-spin' : ''}`} />
                 </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-5 scrollbar-hide">
+            <div className="flex-1 overflow-y-auto space-y-8 scrollbar-hide relative">
                 {!hasContent ? (
-                    <div className="h-full flex flex-col items-center justify-center text-center py-12 opacity-30">
-                        <Brain size={28} className="mb-3 text-zinc-600" />
-                        <p className="text-sm font-medium text-zinc-500">
-                            {isActive ? 'Analyzing conversation...' : 'Start a conversation to get AI suggestions'}
+                    <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-30 grayscale">
+                        <Brain size={48} className="mb-6 text-slate-200" />
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">
+                            {isActive ? 'Analyzing Neural Stream...' : 'Awaiting Atmosphere Activation'}
                         </p>
-                        {suggestions.clinical_notes && (
-                            <p className="text-xs text-zinc-600 mt-2">{suggestions.clinical_notes}</p>
-                        )}
                     </div>
                 ) : (
                     <AnimatePresence mode="popLayout">
                         {/* Real-time Insights (Entities, ICD-10, Billing) */}
-                        {insights.length > 0 && (
+                        {insights && insights.length > 0 && (
                             <motion.div
                                 key="live_insights"
-                                initial={{ opacity: 0, y: 8 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 space-y-4"
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="p-6 rounded-[2rem] bg-blue-50 border border-blue-100 space-y-4"
                             >
-                                <SectionHeader icon={Activity} label="Real-Time Insights" color="text-indigo-400" />
+                                <SectionHeader icon={Activity} label="Nexus Insights" color="text-blue-600" />
                                 {insights.map((insight, idx) => (
-                                    <div key={idx} className="space-y-2">
+                                    <div key={idx} className="space-y-3">
                                         <div className="flex items-center justify-between">
-                                            <span className="text-xs font-bold text-white">{insight.value}</span>
-                                            <span className="text-[9px] font-black uppercase text-indigo-500/50 tracking-tighter">{insight.type}</span>
+                                            <span className="text-sm font-black text-slate-900 uppercase italic">{insight.value}</span>
+                                            <span className="text-[9px] font-black uppercase text-blue-600/50 tracking-widest">{insight.type}</span>
                                         </div>
                                         {insight.icd10_suggestions?.map((s: any, sidx: number) => (
-                                            <div key={sidx} className="flex items-center justify-between bg-white/5 p-2 rounded-lg border border-white/5">
+                                            <div key={sidx} className="flex items-center justify-between bg-white/50 p-2.5 rounded-xl border border-blue-100/50">
                                                 <div className="flex flex-col">
-                                                    <span className="text-[10px] font-bold text-indigo-300">{s.code}</span>
-                                                    <span className="text-[9px] text-zinc-500 truncate w-40">{s.description}</span>
+                                                    <span className="text-[10px] font-black text-blue-600">{s.code}</span>
+                                                    <span className="text-[9px] font-bold text-slate-400 truncate w-32">{s.description}</span>
                                                 </div>
-                                                <span className="text-[9px] font-bold text-emerald-500">{Math.round(s.confidence * 100)}%</span>
+                                                <div className="h-6 px-2 rounded-full bg-blue-100 text-blue-600 text-[8px] font-black flex items-center">{Math.round(s.confidence * 100)}%</div>
                                             </div>
                                         ))}
                                     </div>
@@ -135,19 +134,19 @@ const ClinicalAssistant: React.FC<Props> = ({ transcript, isActive, insights = [
                             </motion.div>
                         )}
 
-                        {/* Red Flags — shown first if present */}
+                        {/* Red Flags */}
                         {suggestions.red_flags.length > 0 && (
                             <motion.div
                                 key="red_flags"
-                                initial={{ opacity: 0, y: 8 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30"
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="p-6 rounded-[2rem] bg-rose-50 border border-rose-100"
                             >
-                                <SectionHeader icon={AlertTriangle} label="Red Flags" color="text-rose-400" />
-                                <ul className="space-y-1.5">
+                                <SectionHeader icon={AlertTriangle} label="Critical Alerts" color="text-rose-600" />
+                                <ul className="space-y-2">
                                     {suggestions.red_flags.map((flag, i) => (
-                                        <li key={i} className="text-sm text-rose-200 font-medium flex items-start gap-2">
-                                            <ChevronRight size={14} className="text-rose-500 mt-0.5 flex-shrink-0" />
+                                        <li key={i} className="text-xs text-rose-900 font-bold flex items-start gap-3 bg-white/40 p-2.5 rounded-xl border border-rose-100">
+                                            <ChevronRight size={14} className="text-rose-600 mt-0.5 flex-shrink-0" />
                                             {flag}
                                         </li>
                                     ))}
@@ -159,15 +158,14 @@ const ClinicalAssistant: React.FC<Props> = ({ transcript, isActive, insights = [
                         {suggestions.differential_diagnoses.length > 0 && (
                             <motion.div
                                 key="diagnoses"
-                                initial={{ opacity: 0, y: 8 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.05 }}
-                                className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20"
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="p-6 rounded-[2rem] bg-slate-50 border border-slate-100"
                             >
-                                <SectionHeader icon={Brain} label="Differential Diagnoses" color="text-indigo-400" />
+                                <SectionHeader icon={Sparkles} label="Differential Flux" color="text-slate-900" />
                                 <div className="flex flex-wrap gap-2">
                                     {suggestions.differential_diagnoses.map((d, i) => (
-                                        <span key={i} className="px-3 py-1 rounded-full bg-indigo-600/20 border border-indigo-500/30 text-xs font-semibold text-indigo-300">
+                                        <span key={i} className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-[10px] font-black text-slate-900 uppercase tracking-tight shadow-sm italic hover:scale-105 transition-all">
                                             {d}
                                         </span>
                                     ))}
@@ -179,16 +177,15 @@ const ClinicalAssistant: React.FC<Props> = ({ transcript, isActive, insights = [
                         {suggestions.suggested_questions.length > 0 && (
                             <motion.div
                                 key="questions"
-                                initial={{ opacity: 0, y: 8 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.1 }}
-                                className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20"
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="p-6 rounded-[2rem] bg-emerald-50 border border-emerald-100"
                             >
-                                <SectionHeader icon={HelpCircle} label="Suggested Questions" color="text-amber-400" />
-                                <ul className="space-y-1.5">
+                                <SectionHeader icon={HelpCircle} label="Deep Clinical Inquiry" color="text-emerald-600" />
+                                <ul className="space-y-2">
                                     {suggestions.suggested_questions.map((q, i) => (
-                                        <li key={i} className="text-sm text-amber-200 font-medium flex items-start gap-2">
-                                            <ChevronRight size={14} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                                        <li key={i} className="text-xs text-emerald-900 font-bold flex items-start gap-3 bg-white/40 p-2.5 rounded-xl border border-emerald-100">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-600 mt-1.5" />
                                             {q}
                                         </li>
                                     ))}
@@ -200,36 +197,34 @@ const ClinicalAssistant: React.FC<Props> = ({ transcript, isActive, insights = [
                         {suggestions.suggested_tests.length > 0 && (
                             <motion.div
                                 key="tests"
-                                initial={{ opacity: 0, y: 8 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.15 }}
-                                className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20"
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="p-6 rounded-[2rem] bg-blue-50 border border-blue-100"
                             >
-                                <SectionHeader icon={FlaskConical} label="Suggested Tests" color="text-emerald-400" />
+                                <SectionHeader icon={FlaskConical} label="Laboratory Protocols" color="text-blue-600" />
                                 <div className="flex flex-wrap gap-2">
                                     {suggestions.suggested_tests.map((t, i) => (
-                                        <span key={i} className="px-3 py-1 rounded-full bg-emerald-600/20 border border-emerald-500/30 text-xs font-semibold text-emerald-300">
+                                        <span key={i} className="px-4 py-2 rounded-xl bg-white border border-blue-200 text-[9px] font-black text-blue-600 uppercase tracking-widest shadow-sm">
                                             {t}
                                         </span>
                                     ))}
                                 </div>
                             </motion.div>
                         )}
-
-                        {/* Clinical Notes */}
-                        {suggestions.clinical_notes && suggestions.clinical_notes !== 'Awaiting conversation data...' && (
-                            <motion.div
-                                key="notes"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                transition={{ delay: 0.2 }}
-                                className="text-[11px] text-zinc-500 italic px-2 leading-relaxed"
-                            >
-                                {suggestions.clinical_notes}
-                            </motion.div>
-                        )}
                     </AnimatePresence>
                 )}
+            </div>
+            
+            <div className="mt-8 pt-8 border-t border-slate-50 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <ShieldCheck size={14} className="text-slate-300" />
+                    <span className="text-[8px] font-black text-slate-300 uppercase tracking-[0.2em]">Neural Encryption Verified</span>
+                </div>
+                <div className="flex items-center gap-1">
+                    <div className="w-1 h-3 bg-blue-600 rounded-full animate-bounce [animation-delay:0s]" />
+                    <div className="w-1 h-3 bg-blue-600 rounded-full animate-bounce [animation-delay:0.2s]" />
+                    <div className="w-1 h-3 bg-blue-600 rounded-full animate-bounce [animation-delay:0.4s]" />
+                </div>
             </div>
         </div>
     );

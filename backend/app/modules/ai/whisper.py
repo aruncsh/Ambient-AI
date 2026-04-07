@@ -16,11 +16,16 @@ class WhisperService:
         """
         Pre-loads the model into memory. Call this on app startup.
         """
-        try:
-            self._get_model()
-            logger.info("Whisper model warmup complete.")
-        except Exception as e:
-            logger.error(f"Whisper warmup failed: {e}")
+        if settings.WHISPER_PROVIDER == "local":
+            try:
+                self._get_model()
+                logger.info("Local Whisper model warmup complete.")
+            except Exception as e:
+                logger.error(f"Whisper warmup failed: {e}")
+        else:
+            logger.info(f"Skipping local model warmup (Provider: {settings.WHISPER_PROVIDER})")
+        # Ensure we don't load local model even as fallback if user wants OpenAI only
+        return
 
     def _get_model(self):
         if WhisperService._model is None:
@@ -54,16 +59,30 @@ class WhisperService:
         if provider == "openai" and settings.OPENAI_API_KEY:
             try:
                 import httpx
-                # Save to a small buffer-like temp file for OpenAI
+                from app.modules.capture.audio_utils import decode_to_pcm
+                from pydub import AudioSegment
+                
+                # Decode to PCM first (using encounter_id for header caching if it's WebM)
+                pcm_audio = decode_to_pcm(audio_data, encounter_id)
+                if not pcm_audio:
+                    return ""
+                    
+                # Convert PCM to WAV for OpenAI to ensure compatibility
+                audio_segment = AudioSegment(
+                    data=pcm_audio,
+                    sample_width=2,
+                    frame_rate=16000,
+                    channels=1
+                )
+                
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                    tmp.write(audio_data)
+                    audio_segment.export(tmp.name, format="wav")
                     tmp_path = tmp.name
                 
                 try:
                     async with httpx.AsyncClient(timeout=30.0) as client:
                         with open(tmp_path, "rb") as f:
-                            # Frontend sends WebM from MediaRecorder
-                            files = {"file": ("audio.webm", f, "audio/webm")}
+                            files = {"file": ("audio.wav", f, "audio/wav")}
                             data = {
                                 "model": "whisper-1",
                                 "language": "en",
@@ -79,13 +98,15 @@ class WhisperService:
                             )
                             response.raise_for_status()
                             text = response.json().get("text", "")
+                            logger.info(f"OpenAI transcription OK: '{text[:50]}...'")
                             return text.strip()
                 finally:
                     if os.path.exists(tmp_path):
                         os.unlink(tmp_path)
             except Exception as e:
-                logger.error(f"OpenAI Whisper API error: {e}. Falling back to local.")
-                provider = "local"
+                logger.error(f"OpenAI Whisper API error: {e}. (Local fallback disabled by user request)")
+                return "" # No fallback to local
+
 
         if provider == "local":
             tmp_path = None
@@ -131,7 +152,11 @@ class WhisperService:
                         vad_filter=True,
                         vad_parameters=vad_params,
                         initial_prompt=initial_prompt,
-                        language="en",
+                        # If language is not English, task="translate" is handled by the initial_prompt 
+                        # but we can also set task="translate" if language detection is robust.
+                        # For now, let's keep it flexible.
+                        task="transcribe", 
+                        best_of=5
                     )
                     
                     full_text = []
@@ -214,7 +239,8 @@ class WhisperService:
                             })
                         return segments
             except Exception as e:
-                logger.error(f"OpenAI File Transcription Error: {e}, falling back to local.")
+                logger.error(f"OpenAI File Transcription Error: {e}. (Local fallback disabled by user request)")
+                return []
         
         try:
             if not os.path.exists(file_path) or os.path.getsize(file_path) < 100:
@@ -233,8 +259,9 @@ class WhisperService:
                         file_path,
                         beam_size=5,
                         vad_filter=True,
-                        initial_prompt="Medical Consultation. Translate everything to English.",
-                        language="en"
+                        initial_prompt="Medical Consultation. Transcription of doctor and patient visit. High accuracy for medications and symptoms.",
+                        # Do not restrict language to English here to allow detection and translation if needed
+                        # task="translate" # Uncomment if translation is ALWAYS desired
                     )
                     results = []
                     for segment in segments:

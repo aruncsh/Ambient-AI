@@ -1,166 +1,188 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, FileText, ChevronRight, Clock, User as UserIcon, Activity, ShieldCheck, Zap, Brain } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { 
+  Plus, Clock, Users, Stethoscope,
+  Search, BarChart3, Fingerprint, Activity, Radio,
+  ChevronRight, Calendar, AlertCircle
+} from 'lucide-react';
 import { api } from '../lib/api';
+import AppointmentModal from '../components/AppointmentModal';
 
 const Dashboard = () => {
-  const [encounters, setEncounters] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
+    const [patients, setPatients] = useState<any[]>([]);
+    const [doctors, setDoctors] = useState<any[]>([]);
+    const [stats, setStats] = useState({
+        opd_flow_today: "INR 0.00",
+        active_teleconsults: 0,
+        avg_consult_time: "0.0m",
+        total_sessions: 0
+    });
+    const [loading, setLoading] = useState(true);
+    const [isApptModalOpen, setIsApptModalOpen] = useState(false);
+    const navigate = useNavigate();
 
-  const fetchEncounters = async () => {
-    try {
-      setLoading(true);
-      const data = await api.getEncounters();
-      if (Array.isArray(data)) {
-        setEncounters(data.slice(0, 5)); // Show only recent 5
-      } else {
-        console.error("Received non-array data for encounters", data);
-        setEncounters([]);
-      }
-    } catch (err) {
-      console.error("Failed to fetch dashboard data", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const fetchData = async () => {
+        try {
+            setLoading(true);
+            const [patData, docData, statsData] = await Promise.all([
+                api.getPatients(),
+                api.getDoctors(),
+                api.getStats()
+            ]);
+            setPatients(patData || []);
+            setDoctors(docData || []);
+            setStats(statsData || {
+                opd_flow_today: "INR 0.00",
+                active_teleconsults: 0,
+                avg_consult_time: "0.0m",
+                total_sessions: 0
+            });
+        } catch (err) {
+            console.error("Failed to fetch dashboard data", err);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  useEffect(() => {
-    fetchEncounters();
-  }, []);
+    useEffect(() => {
+        fetchData();
+    }, []);
 
-  const totalBillable = encounters.reduce((sum, enc) => sum + (enc.billing_amount || 0), 0);
-  const completedEncounters = encounters.filter(enc => enc.status === 'completed').length;
+    const metrics = [
+        { label: 'OPD Flow (Today)', val: stats.opd_flow_today || "INR 0.00", sub: 'Real-time Daily Revenue', icon: BarChart3, color: 'text-blue-600', bg: 'bg-blue-50' },
+        { label: 'Active Tele-Consults', val: String(stats.active_teleconsults ?? 0), sub: 'Ongoing Live Sessions', icon: Radio, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+        { label: 'Avg Consult Time', val: stats.avg_consult_time || "0.0m", sub: 'Registry Statistics', icon: Clock, color: 'text-slate-600', bg: 'bg-slate-50' },
+        { label: 'Total Sessions', val: String(stats.total_sessions ?? 0), sub: 'Historical Registry', icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    ];
 
-  return (
-    <motion.div 
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="max-w-[1600px] mx-auto px-6 lg:px-12 py-12 space-y-12"
-    >
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 border-b border-white/5 pb-12">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-500 uppercase tracking-[0.2em]">
-             <Activity size={14} /> Clinical command center
-          </div>
-          <h1 className="text-5xl font-bold tracking-tight text-white">Dashboard</h1>
-          <p className="text-zinc-500 text-base max-w-xl font-medium"> Orchestrate your high-performance clinical workflow through AI-assisted encounter capture.</p>
-        </div>
-        <div className="flex gap-4">
-          <button 
-            onClick={() => navigate('/text-to-soap')}
-            className="btn h-14 px-10 rounded-full bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all font-bold"
-          >
-            <FileText size={20} className="mr-2" /> Paste Conversation
-          </button>
-          <button 
-            onClick={() => navigate('/consent')}
-            className="btn btn-primary h-14 px-10 rounded-full shadow-indigo-500/20"
-          >
-            <Plus size={20} className="mr-2" /> New Captured Session
-          </button>
-        </div>
-      </header>
+    return (
+        <div className="space-y-8">
+            {/* Standard Professional Header */}
+            <header className="flex justify-between items-center py-6 border-b border-slate-200">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
+                    <p className="text-sm text-slate-500">Welcome to Ambient AI Clinical Portal.</p>
+                </div>
+                <div className="flex gap-4">
+                    <button 
+                        onClick={() => setIsApptModalOpen(true)}
+                        className="flex items-center gap-2 bg-white border border-slate-200 text-slate-900 px-6 py-3 rounded-xl font-bold hover:bg-slate-50 transition-all shadow-sm"
+                    >
+                        <Calendar size={18} className="text-blue-600" /> New Appointment
+                    </button>
+                    <button 
+                        onClick={async () => {
+                            const enc = await api.createEmergencyEncounter();
+                            navigate(`/encounter/${enc._id || enc.id}`);
+                        }}
+                        className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-lg shadow-rose-600/20"
+                    >
+                        <AlertCircle size={18} /> Emergency
+                    </button>
+                    <button 
+                        onClick={() => navigate('/consent')}
+                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold transition-all shadow-md"
+                    >
+                        <Plus size={18} /> New Encounter
+                    </button>
+                </div>
+            </header>
 
-      <div className="grid grid-cols-12 gap-10">
-        {/* Main Content */}
-        <div className="col-span-12 lg:col-span-8 space-y-10">
-          <div className="glass-card bg-zinc-950/20 border-white/5 space-y-8">
-            <div className="flex justify-between items-center">
-              <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Recent Activity HUD</h3>
-              <button 
-                onClick={() => navigate('/history')}
-                className="text-indigo-400 text-[10px] font-bold uppercase tracking-widest hover:text-indigo-300 transition-colors"
-              >
-                Complete Archive
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              {loading ? (
-                <div className="p-10 flex justify-center text-zinc-500 font-medium animate-pulse">Synchronizing encounter data...</div>
-              ) : encounters.length === 0 ? (
-                <div className="p-10 text-center text-zinc-500 font-medium">No recent encounters found.</div>
-              ) : encounters.map((enc, idx) => (
-                <motion.div 
-                  key={enc.id || enc._id || idx} 
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.1 }}
-                  onClick={() => navigate(`/review/${enc.id || enc._id}`)}
-                  className="p-6 rounded-3xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.05] hover:border-indigo-500/30 cursor-pointer transition-all flex items-center justify-between group"
-                >
-                  <div className="flex items-center gap-6">
-                    <div className="w-14 h-14 bg-zinc-900 rounded-2xl flex items-center justify-center text-zinc-500 group-hover:text-indigo-400 transition-colors border border-white/5">
-                      <UserIcon size={24} />
-                    </div>
-                    <div>
-                      <p className="font-bold text-white text-lg tracking-tight">{enc.patient_name || enc.patient_id}</p>
-                      <div className="flex items-center gap-4 text-xs text-zinc-500 mt-1 font-medium">
-                        <span className="flex items-center gap-1.5"><Clock size={14} /> {new Date(enc.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        <span className="w-1 h-1 bg-zinc-800 rounded-full"></span>
-                        <span className={`flex items-center gap-1.5 ${enc.status === 'active' ? 'text-indigo-400' : 'text-zinc-600'}`}>
-                          <div className={`w-1.5 h-1.5 rounded-full ${enc.status === 'active' ? 'bg-indigo-500 shadow-indigo-500/50 pulse' : 'bg-zinc-700'}`} />
-                          {enc.status}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-zinc-600 group-hover:bg-indigo-500 group-hover:text-white transition-all">
-                    <ChevronRight size={18} />
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-8">
-             <div className="glass-card p-10 bg-indigo-600/5 border-indigo-500/10 col-span-12">
-                <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-4">Patient Intelligence</h4>
-                <div className="text-3xl font-bold text-white">{completedEncounters}</div>
-                <div className="text-xs text-zinc-500 mt-2 font-medium">Encounters finalized successfully</div>
-             </div>
-          </div>
-        </div>
-
-        {/* Sidebar Info */}
-        <div className="col-span-12 lg:col-span-4 space-y-10">
-          <div className="glass-card p-10 bg-gradient-to-br from-indigo-600 to-indigo-800 text-white shadow-2xl shadow-indigo-500/20 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 blur-[60px] rounded-full group-hover:scale-150 transition-transform duration-700" />
-            <ShieldCheck size={40} className="mb-6 opacity-80" />
-            <h4 className="text-2xl font-bold mb-4 tracking-tight">Security Protocol Active</h4>
-            <p className="text-indigo-100/70 text-sm leading-relaxed mb-8 font-medium">
-              E2E Encryption engaged. Zero-knowledge transcription pipeline verified. Raw data scrub scheduled for T-24h.
-            </p>
-            <div className="flex items-center gap-3 bg-white/10 p-4 rounded-2xl border border-white/5">
-                <div className="w-2 h-2 bg-emerald-400 rounded-full shadow-[0_0_10px_#4ade80]" />
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Validated AES-256 Hub</span>
-            </div>
-          </div>
-
-          <div className="glass-card p-10 border-white/5 space-y-6">
-             <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Live System Nodes</h4>
-             <div className="space-y-4">
-                {[
-                    { name: 'Transcription Core', icon: Zap, status: 'Online' },
-                    { name: 'Medical NLP Engine', icon: Brain, status: 'Active' },
-                    { name: 'EHR Sync Node', icon: Activity, status: 'Standby' }
-                ].map((node, i) => (
-                    <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-white/[0.02] border border-white/5">
-                        <div className="flex items-center gap-3">
-                            <node.icon size={16} className="text-indigo-500" />
-                            <span className="text-xs font-semibold text-zinc-300">{node.name}</span>
+            {/* Metrics Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {metrics.map((m, i) => (
+                    <div key={i} className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm space-y-4">
+                        <div className={`w-12 h-12 ${m.bg} ${m.color} rounded-xl flex items-center justify-center`}>
+                            <m.icon size={22} />
                         </div>
-                        <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest">{node.status}</span>
+                        <div>
+                            <p className="text-sm font-semibold text-slate-500">{m.label}</p>
+                            <h2 className="text-2xl font-bold text-slate-900">{m.val}</h2>
+                            <p className="text-xs font-semibold text-slate-400 mt-1">{m.sub}</p>
+                        </div>
                     </div>
                 ))}
-             </div>
-          </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Patient List */}
+                <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                        <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                            <Users size={18} className="text-blue-600" /> Patient Registry
+                        </h3>
+                        <div className="relative">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input type="text" placeholder="Search..." className="pl-9 pr-4 py-1.5 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-blue-600/10 outline-none" />
+                        </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="text-left bg-slate-50 text-slate-400 font-bold uppercase text-[10px] tracking-wider">
+                                    <th className="px-6 py-4">Patient</th>
+                                    <th className="px-6 py-4">ID</th>
+                                    <th className="px-6 py-4">Status</th>
+                                    <th className="px-6 py-4 text-right">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {patients.length > 0 && patients.slice(0, 5).map((p, i) => (
+                                    <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-6 py-4 font-bold text-slate-900">{p.name || 'Anonymous'}</td>
+                                        <td className="px-6 py-4 text-slate-500 font-mono">{p.id || p._id || 'N/A'}</td>
+                                        <td className="px-6 py-4">
+                                            <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 text-[10px] font-bold">Ready</span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            <button 
+                                                onClick={() => navigate('/consent', { state: { patientId: p.id || p._id, patientName: p.name } })}
+                                                className="text-blue-600 hover:underline font-bold text-xs flex items-center gap-1 ml-auto"
+                                            >
+                                                Session <ChevronRight size={14} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {/* Doctor List */}
+                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-6">
+                    <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                        <Stethoscope size={18} className="text-blue-600" /> Clinicians
+                    </h3>
+                    <div className="space-y-4">
+                        {doctors.filter(d => d.is_active).slice(0, 5).map((d, i) => (
+                            <div key={i} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:shadow-sm transition-all">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs uppercase">
+                                        {d.name.split(' ').pop()?.charAt(0) || 'D'}
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-bold text-slate-900">{d.name}</p>
+                                        <p className="text-[9px] font-medium text-slate-400 capitalize">{d.specialization || 'Clinical Lead'}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[9px] font-black uppercase text-emerald-500 tracking-tighter">Active</span>
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+            <AppointmentModal 
+                isOpen={isApptModalOpen} 
+                onClose={() => setIsApptModalOpen(false)} 
+                onSuccess={fetchData} 
+            />
         </div>
-      </div>
-    </motion.div>
-  );
+    );
 };
 
 export default Dashboard;

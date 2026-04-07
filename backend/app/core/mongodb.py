@@ -11,6 +11,7 @@ from app.models.api_response_log import APIResponseLog
 from app.models.scheduling import Appointment
 from app.models.billing import Invoice
 from app.models.user import Patient, Doctor
+from app.models.consult import Consult, ConsultParticipant
 
 async def init_db():
     client = AsyncIOMotorClient(
@@ -28,6 +29,8 @@ async def init_db():
             Appointment,
             Invoice,
             Patient,
-            Doctor
+            Doctor,
+            Consult,
+            ConsultParticipant
         ]
     )

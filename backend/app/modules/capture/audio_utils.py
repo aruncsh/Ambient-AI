@@ -29,24 +29,26 @@ def decode_to_pcm(audio_data: bytes, encounter_id: str = "default", sample_rate:
         # Try direct decode
         audio_segment = AudioSegment.from_file(io.BytesIO(audio_data))
         
-        # If successful AND it's a first chunk, cache the first 2KB as a potential header
-        if encounter_id not in _session_headers and len(audio_data) > 2048:
-             _session_headers[encounter_id] = audio_data[:2048]
+        # If successful AND it's a first chunk, cache enough as potential header
+        if encounter_id not in _session_headers and len(audio_data) > 4096:
+             _session_headers[encounter_id] = audio_data[:8192]
              
         audio_segment = audio_segment.set_frame_rate(sample_rate).set_channels(1).set_sample_width(2)
         return audio_segment.raw_data
     except Exception as e:
-        # If decoding fails, try prepending the cached header
+        # If direct decode fails, prepend the cached header (common for subsequent webm chunks)
         if encounter_id in _session_headers:
             try:
                 combined_data = _session_headers[encounter_id] + audio_data
                 audio_segment = AudioSegment.from_file(io.BytesIO(combined_data))
                 audio_segment = audio_segment.set_frame_rate(sample_rate).set_channels(1).set_sample_width(2)
                 return audio_segment.raw_data
-            except:
-                pass
+            except Exception as e2:
+                logger.debug(f"Combined decode also failed for {encounter_id}: {e2}")
         
-        logger.error(f"Decoding failed for {encounter_id}: {e}")
+        # Log failure only if we really can't get anything
+        if len(audio_data) > 1000: # Quietly ignore tiny packets
+            logger.error(f"Decoding failed for {encounter_id}: {e}")
         return b""
 
 def suppress_noise(audio_data: bytes, sample_rate: int = 16000) -> bytes:

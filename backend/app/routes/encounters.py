@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Body, Response
 from fastapi.responses import JSONResponse, FileResponse
-from typing import List
+from typing import List, Optional
 from app.models.encounter import Encounter
 from app.modules.ai.whisper import whisper_service
 from app.core.config import settings
@@ -102,12 +102,19 @@ from pydantic import BaseModel
 
 class EncounterCreate(BaseModel):
     patient_id: str = "Anonymous"
+    patient_name: Optional[str] = "Anonymous Patient"
     clinician_id: str = "System"
+    consent_obtained: bool = False
 
 @router.post("/")
 async def create_encounter(data: EncounterCreate):
     try:
-        encounter = await Encounter(patient_id=data.patient_id, clinician_id=data.clinician_id).insert()
+        encounter = await Encounter(
+            patient_id=data.patient_id, 
+            patient_name=data.patient_name, 
+            clinician_id=data.clinician_id,
+            consent_obtained=data.consent_obtained
+        ).insert()
         return encounter
     except Exception as e:
         import uuid
@@ -122,6 +129,63 @@ async def create_encounter(data: EncounterCreate):
             "created_at": datetime.utcnow().isoformat(),
             "is_mock": True
         }
+
+@router.post("/emergency")
+async def create_emergency_encounter():
+    try:
+        encounter = await Encounter(
+            patient_id="Emergency", 
+            patient_name="Emergency Patient", 
+            clinician_id="ER Doctor",
+            consent_obtained=True, # Implicit in emergency
+            is_emergency=True,
+            registration_status="pending"
+        ).insert()
+        return encounter
+    except Exception as e:
+        logger.error(f"Emergency encounter creation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.patch("/{encounter_id}/demographics")
+async def update_encounter_demographics(encounter_id: str, demographics: dict = Body(...)):
+    from beanie import PydanticObjectId
+    from bson.objectid import ObjectId
+    try:
+        if not ObjectId.is_valid(encounter_id):
+            encounter = await Encounter.find_one(Encounter.id == encounter_id)
+        else:
+            encounter = await Encounter.get(PydanticObjectId(encounter_id))
+        
+        if not encounter:
+            raise HTTPException(status_code=404, detail="Encounter not found")
+        
+        # Explicitly check for special fields like patient_id and registration_status
+        if "patient_id" in demographics:
+            encounter.patient_id = demographics.pop("patient_id")
+        if "registration_status" in demographics:
+            encounter.registration_status = demographics.pop("registration_status")
+        
+        # Merge remaining demographics
+        current = encounter.current_demographics or {}
+        current.update(demographics)
+        encounter.current_demographics = current
+        
+        # If already registered a new patient, sync to patient record too
+        if encounter.patient_id and encounter.patient_id != "Emergency" and encounter.registration_status == "new":
+            from app.models.user import Patient
+            patient = await Patient.get(PydanticObjectId(encounter.patient_id))
+            if patient:
+                allowed_fields = ["name", "email", "phone", "date_of_birth", "gender", "blood_group", "address", "medical_history", "allergies"]
+                for k, v in demographics.items():
+                    if k in allowed_fields:
+                        setattr(patient, k, v)
+                await patient.save()
+        
+        await encounter.save()
+        return {"status": "success", "demographics": encounter.current_demographics}
+    except Exception as e:
+        logger.error(f"Demographics update failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{encounter_id}/transcribe")
 async def transcribe_audio(encounter_id: str, file: UploadFile = File(...), live: bool = False):
@@ -191,6 +255,9 @@ async def stop_recording(encounter_id: str, file: UploadFile = File(None)):
         else:
             # Fallback for when audio was streamed during session (silent mode)
             await ai_fusion.batch_process_encounter(encounter_id)
+            # Ensure SOAP note and insights are generated after batch transcription
+            await ai_fusion.generate_final_summary(encounter_id)
+            
             from beanie import PydanticObjectId
             from bson.objectid import ObjectId
             if not ObjectId.is_valid(encounter_id):
@@ -205,6 +272,7 @@ async def stop_recording(encounter_id: str, file: UploadFile = File(None)):
     except Exception as e:
         logger.error(f"Stop recording error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/{encounter_id}/prescription-pdf")
 async def get_prescription_pdf(encounter_id: str):

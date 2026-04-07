@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, WebSocket, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.mongodb import init_db
-from app.routes import encounters, summary, automation, consent, scheduling, billing, ai, users
+from app.routes import encounters, summary, automation, consent, scheduling, billing, ai, users, stats, consults, teleconsult, resource
 from app.core.audit_log import audit_log_middleware
 from app.core.retention import retention_worker
 from contextlib import asynccontextmanager
@@ -11,6 +11,10 @@ import json
 import logging
 
 logger = logging.getLogger(__name__)
+file_handler = logging.FileHandler("ws_debug.log", encoding="utf-8")
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(file_handler)
+logger.setLevel(logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,22 +54,31 @@ app.include_router(scheduling, prefix="/api/v1/scheduling", tags=["Scheduling"])
 app.include_router(billing, prefix="/api/v1/billing", tags=["Billing"])
 app.include_router(ai, prefix="/api/v1/ai", tags=["AI"])
 app.include_router(users, prefix="/api/v1/users", tags=["Users"])
-
-@app.get("/health")
-async def health():
-    return {"status": "ok", "version": "2.1.0", "ai": "active"}
+app.include_router(stats, prefix="/api/v1/stats", tags=["Stats"])
+app.include_router(consults, prefix="/api/v1/consults", tags=["Consults"])
+app.include_router(teleconsult, prefix="/api/v1/teleconsult", tags=["Teleconsult"])
+app.include_router(resource, prefix="/api/v1/resource", tags=["Resource"])
 
 @app.post("/api/v1/simulate")
 async def simulate_pipeline():
     from app.modules.ai.fusion import ai_fusion
     return {"status": "success", "results": await ai_fusion.simulate_full_flow({})}
 
+from app.modules.ai.fusion import ai_fusion
+from app.models.encounter import Encounter
+from beanie import PydanticObjectId
+from bson.objectid import ObjectId
+import base64
+
 @app.websocket("/ws/{encounter_id}")
 async def encounter_ws(websocket: WebSocket, encounter_id: str):
-    # Enforce Consent check at WebSocket level
-    from app.models.encounter import Encounter
-    from beanie import PydanticObjectId
-    from bson.objectid import ObjectId
+    try:
+        await websocket.accept()
+    except Exception as e:
+        logger.error(f"WS: Accept failed for {encounter_id}: {e}")
+        return
+
+    logger.info(f"WS: Handshake established for {encounter_id}")
     
     try:
         if not ObjectId.is_valid(encounter_id):
@@ -74,14 +87,16 @@ async def encounter_ws(websocket: WebSocket, encounter_id: str):
             encounter = await Encounter.get(PydanticObjectId(encounter_id))
         
         if encounter and not encounter.consent_obtained:
-            await websocket.accept()
+            logger.warning(f"WS: Consent missing for {encounter_id}")
             await websocket.send_text(json.dumps({"error": "Patient consent required before recording can begin"}))
             await websocket.close(code=4003)
             return
+        logger.info(f"WS: Lifecycle authorized for {encounter_id}")
     except Exception as e:
-        print(f"WS Consent Check Error: {e}")
-
-    await websocket.accept()
+        logger.error(f"WS: Safety check failure for {encounter_id}: {e}")
+        # Continue anyway if DB lookup fails, unless you want it strictly enforced
+        # await websocket.close(code=4000)
+        # return
     from app.modules.ai.fusion import ai_fusion
     import base64
     import asyncio
@@ -110,7 +125,12 @@ async def encounter_ws(websocket: WebSocket, encounter_id: str):
                 # Process based on type (with per-chunk error protection)
                 try:
                     if msg_type == "audio":
+                        logger.info(f"WS Worker: Processing audio chunk for {enc_id} ({len(raw_data)} bytes)")
                         result = await ai_fusion.process_encounter_stream(enc_id, audio_chunk=raw_data, live=True)
+                        if result.get("transcript"):
+                            logger.info(f"WS Worker: Sending result: transcript '{result['transcript'][:50]}...'")
+                        else:
+                            logger.info(f"WS Worker: Sending result (no transcript)")
                         await websocket.send_text(json.dumps(result))
                     elif msg_type == "video":
                         result = await ai_fusion.process_encounter_stream(enc_id, video_frame=raw_data, live=True)

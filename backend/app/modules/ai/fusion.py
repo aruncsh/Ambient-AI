@@ -13,6 +13,7 @@ from app.modules.ai.medical_nlp import medical_nlp_service
 from app.modules.automation.orders import order_automation
 from app.modules.automation.billing_service import billing_service
 from app.models.encounter import Encounter, SOAPNote
+from app.models.user import Patient
 from app.core.config import settings
 from app.core.encryption import encrypt_bytes, decrypt_bytes
 from app.modules.ai.vision import vision_service
@@ -54,9 +55,9 @@ class AIFusion:
             # Append the raw WebM cluster/chunk perfectly retaining stream continuity (ENCRYPTED)
             with open(encounter.recording_path, "ab") as f:
                 enc_chunk = encrypt_bytes(audio_chunk)
-                # Write 4 bytes length then the chunk
+                # Write 4 bytes length then the chunk (explicit little-endian)
                 import struct
-                f.write(struct.pack("I", len(enc_chunk)))
+                f.write(struct.pack("<I", len(enc_chunk)))
                 f.write(enc_chunk)
                 
             pcm_data = decode_to_pcm(audio_chunk, str(encounter.id))
@@ -64,8 +65,10 @@ class AIFusion:
         # 1.5. Visual Analysis (DISABLED FOR PRIVACY)
         new_vision_indicators = {}
         
-        # 2. VAD-based Speaker Toggling (DISABLED)
+        # 2. Speaker Initialization (Use last speaker from transcript as context)
         assigned_role = "Doctor"
+        if encounter.transcript and len(encounter.transcript) > 0:
+            assigned_role = encounter.transcript[-1]["speaker"]
 
         # 3. Live Transcription
         if not live:
@@ -77,17 +80,41 @@ class AIFusion:
 
         raw_text = await whisper_service.transcribe(audio_chunk, str(encounter.id))
         if not raw_text.strip():
-             return {"status": "active", "vitals": encounter.vitals}
+             return {
+                 "status": "active", 
+                 "vitals": encounter.vitals,
+                 "emergency": {
+                    "demographics": encounter.current_demographics,
+                    "missing_fields": encounter.missing_fields,
+                    "registration_status": encounter.registration_status
+                 } if encounter.is_emergency else None
+             }
 
         # 4. Consolidated AI Insights
         ai_insights = await medical_nlp_service.combined_chunk_analysis(raw_text, assigned_role)
         
+        # SPEAKER ROLE IDENTIFICATION (Critical for Auto-Registration Context)
+        if ai_insights.get("detected_role"):
+            assigned_role = ai_insights["detected_role"]
+        
         display_text = ai_insights.get("cleaned_text", raw_text)
+        
+        # 4.5. Clean the display text (Strip LLM-added prefixes if they exist)
+        import re
+        display_text = re.sub(r"^(Doctor|Patient|Member|Staff|Clinician|Nurse):\s*", "", display_text, flags=re.I).strip()
 
         # 5. Vitals Extraction (STRICT CONVERSATIONAL ONLY - NO SIMULATION)
         extracted_vitals = ai_insights.get("vitals", {})
         if extracted_vitals:
-            mapping = {"temp": "temperature", "bp": "blood_pressure", "hr": "heart_rate", "rr": "respiratory_rate", "spo2": "oxygen_saturation"}
+            mapping = {
+                "temp": "temperature", 
+                "bp": "blood_pressure", 
+                "hr": "heart_rate", 
+                "rr": "respiratory_rate", 
+                "spo2": "oxygen_saturation",
+                "glucose": "blood_sugar",
+                "sugar": "blood_sugar"
+            }
             for k, v in extracted_vitals.items():
                 internal_key = mapping.get(k)
                 if internal_key and internal_key in encounter.vitals and v:
@@ -130,20 +157,77 @@ class AIFusion:
                 current_billing.append(b)
         encounter.billing_codes = current_billing
 
+        # 7.5 EMERGENCY AUTO-REGISTRATION (CONVERSATION-DRIVEN)
+        if encounter.is_emergency:
+            # We must include SPEAKER LABELS so the NLP engine knows the context!
+            # We use a rolling window of the last 3000 characters for context.
+            full_history = "\n".join([f"{t['speaker']}: {t['text']}" for t in (encounter.transcript or [])])
+            full_history += f"\n{assigned_role}: {display_text}"
+            
+            current = encounter.current_demographics or {}
+            
+            # Use LLM (fast=False) if we're missing core data to ensure high fidelity
+            is_missing_core = not (current.get("name") and current.get("age"))
+            extracted = await medical_nlp_service.extract_demographics(full_history, fast=not is_missing_core)
+            
+            logger.info(f"Emergency extraction for {encounter_id} (fast={not is_missing_core}): {extracted}")
+            if extracted:
+                    # Update logic: Overwrite if null, or if new extracted value is more specific
+                    for k, v in extracted.items():
+                        if v:
+                            old_v = current.get(k)
+                            # Case 1: Field is empty or 'null' placeholder
+                            if not old_v:
+                                current[k] = v
+                            # Case 2: For name, use the longer one (usually more complete)
+                            elif k == 'name' and len(str(v)) > len(str(old_v)):
+                                current[k] = v
+                            # Case 3: Other fields, if existing is empty string or dummy
+                            elif k != 'name' and not old_v:
+                                current[k] = v
+                            
+                    encounter.current_demographics = current
+                    
+                    # 2. Duplicate Check / Patient Lookup
+                    if encounter.registration_status == "pending":
+                        # Try lookup by name AND phone if available
+                        name = current.get("name")
+                        phone = current.get("phone")
+                        
+                        existing = await Patient.find_one(Patient.name == name)
+                        if not existing and phone:
+                            existing = await Patient.find_one(Patient.phone == phone)
+                            
+                        if existing:
+                            logger.info(f"Emergency: Found existing patient {existing.name} for encounter {encounter_id}")
+                            encounter.patient_id = str(existing.id)
+                            encounter.patient_name = existing.name
+                            encounter.registration_status = "existing"
+                        else:
+                            # We stop auto-background creation and let the clinician trigger it via 
+                            # the official POST /api/v1/users/patients endpoint for better control.
+                            # We just keep updating the demographics so the form is auto-filled.
+                            pass
+                    
+                    # 4. Update Missing Fields for Doctor Prompts
+                    encounter.missing_fields = await medical_nlp_service.identify_missing_fields(current, full_history)
+
         # Final Persistence
         timestamp = datetime.utcnow().isoformat()
+        new_entry = {"speaker": assigned_role, "text": display_text, "timestamp": timestamp}
         if encounter.transcript is None: encounter.transcript = []
-        encounter.transcript.append({"speaker": assigned_role, "text": display_text, "timestamp": timestamp})
+        encounter.transcript.append(new_entry)
         encounter.updated_at = datetime.utcnow()
         await encounter.save()
 
+        logger.info(f"WS Return: Sending transcript: '{display_text[:50]}' to {encounter_id}")
+        
         # Update indicators
         soap_update = {
             "section": soap_section,
             "cleaned_text": soap_content
         } if soap_section != "none" else None
-        new_emotions = [] # Placeholder for now as it's disabled for privacy
-
+        
         return {
             "speaker": assigned_role,
             "transcript": display_text,
@@ -151,9 +235,14 @@ class AIFusion:
             "nlp_insights": nlp_insights.get("entities", []),
             "billing_suggestions": billing_suggestions,
             "soap_update": soap_update,
-            "emotions": new_emotions,
+            "emotions": [],
             "vitals": encounter.vitals,
-            "status": "active"
+            "status": "active",
+            "emergency": {
+                "demographics": encounter.current_demographics,
+                "missing_fields": encounter.missing_fields,
+                "registration_status": encounter.registration_status
+            } if encounter.is_emergency else None
         }
 
     async def batch_process_encounter(self, encounter_id: str):
@@ -196,18 +285,30 @@ class AIFusion:
                     else:
                         logger.info(f"Decrypting {encounter_id} stream data...")
                         with open(encounter_path, "rb") as f_in, open(decrypted_path, "wb") as f_out:
+                            chunk_count = 0
                             while True:
                                 len_data = f_in.read(4)
                                 if not len_data: break
-                                if len(len_data) < 4: break
-                                chunk_len = struct.unpack("I", len_data)[0]
+                                if len(len_data) < 4: 
+                                    logger.warning(f"Incomplete length header at end of file for {encounter_id}")
+                                    break
+                                    
+                                chunk_len = struct.unpack("<I", len_data)[0]
                                 chunk_data = f_in.read(chunk_len)
+                                if len(chunk_data) < chunk_len:
+                                    logger.warning(f"Truncated chunk read for {encounter_id}: expected {chunk_len}, got {len(chunk_data)}")
+                                    # Try to decrypt what we have or skip
+                                    
                                 if not chunk_data: break
                                 try:
                                     f_out.write(decrypt_bytes(chunk_data))
+                                    chunk_count += 1
                                 except Exception as decrypt_err:
-                                    logger.error(f"Chunk decryption failed: {decrypt_err}")
-                                    break
+                                    logger.error(f"Chunk {chunk_count} decryption failed for {encounter_id}: {decrypt_err}")
+                                    # DANGER: Skipping a chunk might corrupt the WebM/WAV stream 
+                                    # but it's better than dropping the remaining 4.5 minutes.
+                                    continue
+                        logger.info(f"Decrypted {chunk_count} chunks for {encounter_id}")
                         encounter_path = decrypted_path
                 except Exception as e:
                     logger.error(f"Decryption failed during batch processing: {e}")
@@ -243,22 +344,40 @@ class AIFusion:
                 with wave.open(encounter_path, 'rb') as wav:
                     params = wav.getparams()
                     raw_audio = wav.readframes(params.nframes)
+                    # Dynamically calculate bytes per second
+                    bytes_per_sec = params.framerate * params.sampwidth * params.nchannels
+                    logger.info(f"Diarization prep for {encounter_id}: {params.framerate}Hz, {params.nchannels}ch, {bytes_per_sec} bps")
                 
                 last_role = "Doctor" # Initial assumption for stateful tracking
                 
-                for seg in segments:
-                    # Generic placeholder ID based on diarization
+                # ── PARALLELIZED DIARIZATION (SPEED OPTIMIZATION) ────────────────────────
+                logger.info(f"Diarizing {len(segments)} segments in parallel...")
+                
+                async def _diarize_seg(idx, seg_bytes):
+                    if len(seg_bytes) < bytes_per_sec * 0.3: # Skip very short snippets for speed
+                        return f"Speaker {1 if idx % 2 == 0 else 2}"
                     try:
-                        start_byte = int(seg["start"] * 32000)
-                        end_byte = int(seg["end"] * 32000)
-                        segment_audio = raw_audio[start_byte:end_byte]
-                        speaker_id = await diarization_service.get_speaker_id(segment_audio)
+                        return await diarization_service.get_speaker_id(seg_bytes)
                     except:
-                        # Fallback to alternate labels if embedding fails
-                        speaker_id = f"Speaker {1 if i % 2 == 0 else 2}"
-                    
+                        return f"Speaker {1 if idx % 2 == 0 else 2}"
+
+                diarization_tasks = []
+                for i, seg in enumerate(segments):
+                    start_byte = int(max(0, seg["start"]) * bytes_per_sec)
+                    end_byte = int(seg["end"] * bytes_per_sec)
+                    segment_audio = raw_audio[start_byte:end_byte]
+                    diarization_tasks.append(_diarize_seg(i, segment_audio))
+                
+                # Use batches to avoid overwhelming memory/CPU
+                speaker_ids = []
+                batch_size = 20
+                for j in range(0, len(diarization_tasks), batch_size):
+                    batch = diarization_tasks[j:j+batch_size]
+                    speaker_ids.extend(await asyncio.gather(*batch))
+                
+                for i, seg in enumerate(segments):
                     processed_transcript.append({
-                        "speaker": speaker_id,
+                        "speaker": speaker_ids[i],
                         "text": seg["text"],
                         "timestamp": (encounter.created_at + timedelta(seconds=seg["start"])).isoformat() if encounter.created_at else datetime.utcnow().isoformat()
                     })
@@ -272,33 +391,56 @@ class AIFusion:
                     identified_transcript = await medical_nlp_service.identify_transcript_roles(raw_text_transcript)
                     
                     if identified_transcript:
-                        # SUPERIOR ROBUST PARSING: Only update lines that match the role structure
-                        llm_lines = [l.strip() for l in identified_transcript.split('\n') if re.match(r"^(Doctor|Patient):", l.strip(), re.I)]
+                        # Extract lines that match the "Role: Text" format
+                        llm_lines = []
+                        for l in identified_transcript.split('\n'):
+                            l = l.strip()
+                            if re.match(r"^(Doctor|Patient|Member|Staff|Clinician):\s*.*", l, re.I):
+                                llm_lines.append(l)
                         
-                        # If LLM returned exactly what we expected, map it. 
-                        # Otherwise use a heuristic to avoid breaking the sequence.
-                        if len(llm_lines) == len(processed_transcript):
-                            for i, line in enumerate(llm_lines):
-                                role_match = re.match(r"^(Doctor|Patient):\s*(.*)", line, re.I)
-                                if role_match:
-                                    processed_transcript[i]["speaker"] = role_match.group(1).capitalize()
-                                    processed_transcript[i]["text"] = role_match.group(2).strip()
-                        else:
-                            logger.warning(f"LLM Role ID line mismatch: expected {len(processed_transcript)}, got {len(llm_lines)}. Falling back to greedy matching.")
-                            target_ptr = 0
-                            for line in llm_lines:
-                                if target_ptr < len(processed_transcript):
-                                    role_match = re.match(r"^(Doctor|Patient):\s*(.*)", line, re.I)
+                        if llm_lines:
+                            # Reconstruct from LLM if it's more comprehensive or significantly different
+                            # This handles cases where Whisper merged turns into a single segment
+                            new_transcript = []
+                            
+                            # Calculate total duration for timestamp interpolation
+                            first_ts = processed_transcript[0]["timestamp"] if processed_transcript else datetime.utcnow().isoformat()
+                            
+                            if len(llm_lines) != len(processed_transcript) or True: # Always trust LLM for cleaned text structure
+                                logger.info(f"Reconstructing transcript structure from LLM for {encounter_id} ({len(llm_lines)} vs {len(processed_transcript)} segments)")
+                                
+                                # Use a smart mapping: if we have roughly similar number of turns, distribute timestamps
+                                # Otherwise, just space them out or use the closest original segment's TS
+                                for i, line in enumerate(llm_lines):
+                                    role_match = re.match(r"^(Doctor|Patient|Member|Staff|Clinician):\s*(.*)", line, re.I)
                                     if role_match:
-                                        processed_transcript[target_ptr]["speaker"] = role_match.group(1).capitalize()
-                                        # Only update text if it's very similar to avoid losing data
-                                        # processed_transcript[target_ptr]["text"] = role_match.group(2).strip()
-                                        target_ptr += 1
+                                        speaker = role_match.group(1).capitalize()
+                                        if speaker not in ["Doctor", "Patient"]: speaker = "Doctor" if "Doc" in speaker or "Clin" in speaker else "Patient"
+                                        text = role_match.group(2).strip()
+                                        
+                                        # Interpolate timestamp if we have original segments
+                                        if processed_transcript:
+                                            # Find closest segment based on text overlap or just distribute index-wise
+                                            idx = int((i / len(llm_lines)) * len(processed_transcript))
+                                            ts = processed_transcript[min(idx, len(processed_transcript)-1)]["timestamp"]
+                                        else:
+                                            ts = (datetime.utcnow() + timedelta(seconds=i*5)).isoformat()
+                                            
+                                        new_transcript.append({
+                                            "speaker": speaker,
+                                            "text": text,
+                                            "timestamp": ts
+                                        })
+                                
+                                if new_transcript:
+                                    processed_transcript = new_transcript
+                        else:
+                            logger.warning(f"LLM Role ID returned no valid lines. Keeping original segments.")
                 except Exception as id_err:
                     logger.error(f"Global role identification failed: {id_err}")
                     # Fallback to simple alternating if identification fails
                     for i, t in enumerate(processed_transcript):
-                        if "Speaker" in t["speaker"]:
+                        if "Speaker" in t.get("speaker", ""):
                             t["speaker"] = "Doctor" if i % 2 == 0 else "Patient"
             except Exception as e:
                 logger.error(f"Diarization sequence failure: {e}")
@@ -424,6 +566,7 @@ class AIFusion:
                 assessment=soap_data.get("assessment", {}),
                 plan=soap_data.get("plan", {}),
                 follow_up=soap_data.get("follow_up", {}),
+                ros=soap_data.get("ros", {}),
                 billing=clinical_info.get("billing", {}),
                 clean_transcript=clinical_info.get("clean_conversation", ""),
                 raw_transcript=full_transcript,
@@ -521,11 +664,11 @@ class AIFusion:
                             ]
                         }
             else:
-                encounter.billing_amount = encounter.billing_amount or 250.0
+                encounter.billing_amount = encounter.billing_amount or 500.0
 
         except Exception as e:
             logger.error(f"Parallel automation failed: {e}")
-            encounter.billing_amount = encounter.billing_amount or 250.0
+            encounter.billing_amount = encounter.billing_amount or 500.0
         
         # C. Sync to EHR (FHIR) - EXECUTED IN BACKGROUND for immediate response
         if background_tasks:
@@ -546,6 +689,15 @@ class AIFusion:
                 encounter.fhir_status = "failed"
             
         encounter.status = "completed"
+        # Persist insights to the database
+        insights = clinical_info.get("extracted_entities", {})
+        if not insights:
+            insights = {
+                "symptoms": clinical_info.get("extracted_symptoms", []),
+                "diagnoses": clinical_info.get("extracted_diagnosis", []),
+                "billing_codes": clinical_info.get("extracted_billing_codes", [])
+            }
+        encounter.nlp_insights = insights
         await encounter.save()
         
         # Return a dict containing both SOAP note and automation totals to help frontend
@@ -554,8 +706,14 @@ class AIFusion:
             "billing_amount": encounter.billing_amount,
             "billing_codes": encounter.billing_codes,
             "invoice_id": encounter.invoice_id,
-            "currency": encounter.billing_currency
+            "currency": encounter.billing_currency,
+            "nlp_insights": {
+                "symptoms": clinical_info.get("extracted_symptoms", []),
+                "diagnoses": clinical_info.get("extracted_diagnosis", []),
+                "billing_codes": clinical_info.get("extracted_billing_codes", [])
+            }
         }
+
 
     async def generate_summary_from_text(self, raw_text: str, patient_id: str = "Anonymous", background_tasks: Optional[Any] = None):
         """
@@ -688,7 +846,7 @@ class AIFusion:
         
         # PCM decoding
         from app.modules.capture.audio_utils import decode_to_pcm, append_to_wav
-        pcm_data = decode_to_pcm(audio_data)
+        pcm_data = decode_to_pcm(audio_data, str(encounter_id)) # Pass ID for header caching
         
         # For batch, we overwrite or create fresh
         import wave

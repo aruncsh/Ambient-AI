@@ -92,11 +92,11 @@ async def update_soap(encounter_id: str, request_data: Dict):
         if billing_result.get("success"):
             encounter.invoice_id = billing_result.get("invoice_id")
             encounter.billing_codes = billing_result.get("billing_codes", encounter.billing_codes)
-            encounter.billing_amount = billing_result.get("total_amount", 250.0) # Fallback to base fee
+            encounter.billing_amount = billing_result.get("total_amount", 500.0) # Fallback to base fee
             encounter.billing_currency = billing_result.get("currency", "INR")
         else:
             # If billing service failed, at least set a base fee so it's not 0
-            encounter.billing_amount = encounter.billing_amount or 250.0
+            encounter.billing_amount = encounter.billing_amount or 500.0
         
         # EHR Sync re-trigger
         try:

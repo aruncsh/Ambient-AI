@@ -13,6 +13,31 @@ export const api = {
     });
     return res.json();
   },
+  createEmergencyEncounter: async () => {
+    const res = await fetch(`${API_BASE}/encounters/emergency`, {
+      method: 'POST'
+    });
+    return res.json();
+  },
+  getEncounter: async (id: string) => {
+    const res = await fetch(`${API_BASE}/encounters/${id}`);
+    return res.json();
+  },
+  completeEncounter: async (id: string, audioBlob?: Blob) => {
+    if (audioBlob) {
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'full_audio.webm');
+      const res = await fetch(`${API_BASE}/encounters/${id}/stop`, {
+        method: 'POST',
+        body: formData
+      });
+      return res.json();
+    }
+    const res = await fetch(`${API_BASE}/encounters/${id}/stop`, {
+      method: 'POST'
+    });
+    return res.json();
+  },
   generateSOAP: async (encounterId: string) => {
     const res = await fetch(`${API_BASE}/summary/${encounterId}/generate`, {
       method: 'POST'
@@ -21,6 +46,14 @@ export const api = {
   },
   simulate: async () => {
     const res = await fetch(`/simulate`, { method: 'POST' });
+    return res.json();
+  },
+  updateDemographics: async (id: string, demographics: any) => {
+    const res = await fetch(`${API_BASE}/encounters/${id}/demographics`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(demographics)
+    });
     return res.json();
   },
   transcribeChunk: async (encounterId: string, audioBlob: Blob) => {
@@ -47,6 +80,16 @@ export const api = {
   deleteAppointment: async (id: string) => {
     const res = await fetch(`${API_BASE}/scheduling/${id}`, {
       method: 'DELETE'
+    });
+    return res.json();
+  },
+  getAppointment: async (id: string) => {
+    const res = await fetch(`${API_BASE}/scheduling/${id}`);
+    return res.json();
+  },
+  updateAppointment: async (id: string, status: string) => {
+    const res = await fetch(`${API_BASE}/scheduling/${id}?status=${status}`, {
+      method: 'PATCH'
     });
     return res.json();
   },
@@ -89,6 +132,34 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(doctor)
+    });
+    return res.json();
+  },
+  updatePatient: async (id: string, patient: any) => {
+    const res = await fetch(`${API_BASE}/users/patients/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patient)
+    });
+    return res.json();
+  },
+  updateDoctor: async (id: string, doctor: any) => {
+    const res = await fetch(`${API_BASE}/users/doctors/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(doctor)
+    });
+    return res.json();
+  },
+  getStats: async () => {
+    const res = await fetch(`${API_BASE}/stats/`);
+    return res.json();
+  },
+  extractDemographics: async (text: string, fast: boolean = false) => {
+    const res = await fetch(`${API_BASE}/ai/extract-demographics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, fast })
     });
     return res.json();
   }

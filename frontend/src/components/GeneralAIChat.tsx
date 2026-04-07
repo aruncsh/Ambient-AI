@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bot, X, Send, Sparkles, ChevronDown, RotateCcw } from 'lucide-react';
+import { Bot, X, Send, Sparkles, ChevronDown, RotateCcw, ShieldCheck, Brain, MessageSquare } from 'lucide-react';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -12,7 +12,7 @@ const GeneralAIChat: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([
         {
             role: 'assistant',
-            content: "Hello! I'm your AI assistant. I can help with medical questions, drug information, clinical guidelines, or anything else. Ask me anything — completely free!"
+            content: "Welcome to the Nexus Intelligence Layer. I can assist with clinical guidelines, pharmacological cross-referencing, or diagnostic protocols. How may I facilitate your workflow today?"
         }
     ]);
     const [input, setInput] = useState('');
@@ -51,7 +51,7 @@ const GeneralAIChat: React.FC = () => {
         } catch (err) {
             setMessages(prev => [...prev, {
                 role: 'assistant',
-                content: 'Connection error. Please ensure the backend server is running.'
+                content: 'Network latency detected. Please ensure the clinical backend is accessible.'
             }]);
         } finally {
             setIsLoading(false);
@@ -68,108 +68,105 @@ const GeneralAIChat: React.FC = () => {
     const clearChat = () => {
         setMessages([{
             role: 'assistant',
-            content: "Chat cleared! Ask me anything — medical or otherwise."
+            content: "Context buffer cleared. Awaiting new clinical inquiry."
         }]);
     };
 
     return (
         <>
-            {/* Floating Toggle Button */}
+            {/* Professional Floating Toggle */}
             <motion.button
                 id="ai-chat-toggle"
                 onClick={() => setIsOpen(v => !v)}
-                className={`fixed bottom-8 right-8 z-50 w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-all ${
+                className={`fixed bottom-10 right-10 z-50 w-20 h-20 rounded-[2rem] flex flex-col items-center justify-center shadow-2xl transition-all ${
                     isOpen
-                    ? 'bg-zinc-800 border border-zinc-700'
-                    : 'bg-indigo-600 shadow-[0_0_30px_rgba(79,70,229,0.5)]'
+                    ? 'bg-slate-900 border border-slate-800'
+                    : 'bg-blue-600 shadow-xl shadow-blue-600/30 border border-blue-500 hover:bg-blue-700'
                 }`}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                title="AI Assistant"
             >
                 <AnimatePresence mode="wait">
                     {isOpen ? (
-                        <motion.div key="close" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }}>
-                            <ChevronDown size={22} className="text-white" />
+                        <motion.div key="close" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                            <ChevronDown size={28} className="text-white" />
                         </motion.div>
                     ) : (
-                        <motion.div key="open" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }}>
-                            <Sparkles size={22} className="text-white" />
+                        <motion.div key="open" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center">
+                            <Sparkles size={28} className="text-white mb-1" />
+                            <span className="text-[8px] font-black text-white uppercase tracking-widest leading-none">Pulse</span>
                         </motion.div>
                     )}
                 </AnimatePresence>
                 {!isOpen && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-zinc-950 animate-pulse" />
+                    <span className="absolute top-4 right-4 w-3 h-3 rounded-full bg-emerald-500 border-2 border-blue-600 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]" />
                 )}
             </motion.button>
 
-            {/* Chat Panel */}
+            {/* Premium Chat Panel */}
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
                         id="ai-chat-panel"
-                        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                        className="fixed bottom-28 right-8 z-50 w-[380px] h-[520px] bg-zinc-950/95 backdrop-blur-3xl border border-zinc-800/80 rounded-[2rem] shadow-2xl flex flex-col overflow-hidden"
+                        initial={{ opacity: 0, scale: 0.98, y: 30, x: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0, x: 0 }}
+                        exit={{ opacity: 0, scale: 0.98, y: 30, x: 20 }}
+                        className="fixed bottom-36 right-10 z-50 w-[420px] h-[640px] bg-white rounded-[3.5rem] shadow-2xl border border-slate-200 flex flex-col overflow-hidden"
                     >
-                        {/* Header */}
-                        <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-800/60">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
-                                    <Bot size={16} className="text-indigo-400" />
+                        {/* High-Fidelity Header */}
+                        <div className="flex items-center justify-between px-10 py-8 border-b border-slate-50 bg-slate-50/30 relative">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/5 blur-3xl rounded-full translate-x-12 -translate-y-12" />
+                            <div className="flex items-center gap-4 relative">
+                                <div className="w-12 h-12 rounded-2xl bg-blue-600 shadow-lg shadow-blue-600/20 flex items-center justify-center">
+                                    <Brain size={24} className="text-white" />
                                 </div>
-                                <div>
-                                    <p className="text-sm font-bold text-white">AI Assistant</p>
-                                    <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-widest">Free · Local AI</p>
+                                <div className="space-y-0.5">
+                                    <p className="text-lg font-black text-slate-900 uppercase italic tracking-tighter">AI Pulse <span className="text-blue-600 font-black">Nexus</span></p>
+                                    <p className="text-[9px] text-emerald-500 font-black uppercase tracking-[0.3em] flex items-center gap-2">
+                                        <ShieldCheck size={10} /> Secure Clinical Stream
+                                    </p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <button onClick={clearChat} className="p-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 transition-all" title="Clear chat">
-                                    <RotateCcw size={13} className="text-zinc-400" />
+                            <div className="flex items-center gap-3 relative">
+                                <button onClick={clearChat} className="p-2.5 rounded-xl bg-white border border-slate-100 hover:bg-slate-900 hover:text-white transition-all shadow-sm">
+                                    <RotateCcw size={16} />
                                 </button>
-                                <button onClick={() => setIsOpen(false)} className="p-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 transition-all" title="Close">
-                                    <X size={13} className="text-zinc-400" />
+                                <button onClick={() => setIsOpen(false)} className="p-2.5 rounded-xl bg-white border border-slate-100 hover:bg-slate-900 hover:text-white transition-all shadow-sm">
+                                    <X size={16} />
                                 </button>
                             </div>
                         </div>
 
-                        {/* Messages */}
-                        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 scrollbar-hide">
+                        {/* Professional Dialogue History */}
+                        <div className="flex-1 overflow-y-auto px-10 py-8 space-y-8 scrollbar-hide bg-white">
                             <AnimatePresence initial={false}>
                                 {messages.map((msg, i) => (
                                     <motion.div
                                         key={i}
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
+                                        initial={{ opacity: 0, x: msg.role === 'user' ? 20 : -20 }}
+                                        animate={{ opacity: 1, x: 0 }}
                                         className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                                     >
-                                        <div className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                                        <div className={`max-w-[85%] p-6 rounded-[2rem] text-sm font-bold leading-relaxed shadow-sm ${
                                             msg.role === 'user'
-                                            ? 'bg-indigo-600/80 text-white rounded-tr-sm'
-                                            : 'bg-zinc-800/80 text-zinc-200 rounded-tl-sm'
+                                            ? 'bg-blue-600 text-white rounded-tr-none'
+                                            : 'bg-slate-50 border border-slate-100 text-slate-900 rounded-tl-none italic'
                                         }`}>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <span className={`text-[8px] font-black uppercase tracking-widest ${msg.role === 'user' ? 'text-blue-100' : 'text-blue-600'}`}>
+                                                    {msg.role === 'user' ? 'Authorized Inquirer' : 'Nexus Intelligence'}
+                                                </span>
+                                            </div>
                                             {msg.content}
                                         </div>
                                     </motion.div>
                                 ))}
                                 {isLoading && (
-                                    <motion.div
-                                        key="loading"
-                                        initial={{ opacity: 0 }}
-                                        animate={{ opacity: 1 }}
-                                        className="flex justify-start"
-                                    >
-                                        <div className="bg-zinc-800/80 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1.5 items-center">
-                                            {[0, 1, 2].map(i => (
-                                                <motion.div
-                                                    key={i}
-                                                    className="w-1.5 h-1.5 rounded-full bg-indigo-400"
-                                                    animate={{ y: [0, -4, 0] }}
-                                                    transition={{ repeat: Infinity, duration: 0.8, delay: i * 0.15 }}
-                                                />
-                                            ))}
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
+                                        <div className="bg-slate-50 p-6 rounded-[2rem] rounded-tl-none border border-slate-50 flex items-center gap-2">
+                                            <div className="w-1.5 h-6 bg-blue-600 rounded-full animate-bounce [animation-delay:0s]" />
+                                            <div className="w-1.5 h-6 bg-blue-600 rounded-full animate-bounce [animation-delay:0.2s]" />
+                                            <div className="w-1.5 h-6 bg-blue-600 rounded-full animate-bounce [animation-delay:0.4s]" />
                                         </div>
                                     </motion.div>
                                 )}
@@ -177,9 +174,9 @@ const GeneralAIChat: React.FC = () => {
                             <div ref={messagesEndRef} />
                         </div>
 
-                        {/* Input */}
-                        <div className="px-5 py-4 border-t border-zinc-800/60">
-                            <div className="flex items-end gap-3 bg-zinc-800/60 border border-zinc-700/50 rounded-2xl px-4 py-3 focus-within:border-indigo-500/50 transition-all">
+                        {/* High-Contrast Input Interface */}
+                        <div className="p-10 border-t border-slate-50 bg-slate-50/20">
+                            <div className="flex items-end gap-4 bg-white border border-slate-200 rounded-[2.5rem] p-6 focus-within:border-blue-600/40 focus-within:shadow-xl transition-all shadow-sm group">
                                 <textarea
                                     ref={inputRef}
                                     id="ai-chat-input"
@@ -187,19 +184,25 @@ const GeneralAIChat: React.FC = () => {
                                     value={input}
                                     onChange={e => setInput(e.target.value)}
                                     onKeyDown={handleKeyDown}
-                                    placeholder="Ask anything..."
-                                    className="flex-1 bg-transparent text-sm text-white placeholder-zinc-600 resize-none outline-none leading-relaxed max-h-28 scrollbar-hide"
+                                    placeholder="Enter clinical inquiry..."
+                                    className="flex-1 bg-transparent text-lg font-black italic text-slate-900 placeholder:text-slate-200 resize-none outline-none leading-relaxed max-h-40 scrollbar-hide uppercase tracking-tighter"
                                 />
                                 <button
                                     id="ai-chat-send"
                                     onClick={sendMessage}
                                     disabled={!input.trim() || isLoading}
-                                    className="w-8 h-8 rounded-full flex items-center justify-center bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:pointer-events-none transition-all flex-shrink-0"
+                                    className="w-14 h-14 rounded-2xl flex items-center justify-center bg-slate-900 hover:bg-blue-600 disabled:opacity-20 disabled:scale-95 transition-all flex-shrink-0 shadow-lg shadow-slate-900/10"
                                 >
-                                    <Send size={14} className="text-white" />
+                                    <Send size={20} className="text-white fill-current translate-x-0.5 -translate-y-0.5" />
                                 </button>
                             </div>
-                            <p className="text-[9px] text-zinc-600 text-center mt-2 font-medium">Enter to send · Shift+Enter for newline</p>
+                            <div className="flex items-center justify-between mt-6 px-4">
+                                <div className="flex items-center gap-2 opacity-30">
+                                    <ShieldCheck size={12} className="text-slate-400" />
+                                    <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">HIPAA Protected</span>
+                                </div>
+                                <p className="text-[8px] font-black text-slate-300 uppercase tracking-widest">Shift + Enter for logic break</p>
+                            </div>
                         </div>
                     </motion.div>
                 )}

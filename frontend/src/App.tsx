@@ -13,9 +13,10 @@ import Encounter from './pages/Encounter';
 import Review from './pages/Review';
 import TextToSoap from './pages/TextToSoap';
 import Users from './pages/Users';
+import Teleconsult from './pages/Teleconsult';
+import TeleconsultList from './pages/TeleconsultList';
 
-import PipelineSimulator from './components/PipelineSimulator';
-import Navbar from './components/Navbar';
+import Shell from './components/Shell';
 
 const AnimatedRoutes = () => {
   const location = useLocation();
@@ -30,6 +31,9 @@ const AnimatedRoutes = () => {
         <Route path="/consent" element={<Consent />} />
         <Route path="/encounter/:id" element={<Encounter />} />
         <Route path="/review/:id" element={<Review />} />
+        <Route path="/teleconsultations" element={<TeleconsultList />} />
+        <Route path="/teleconsult/:id" element={<Teleconsult />} />
+        <Route path="/consult/:token" element={<Teleconsult />} />
         <Route path="/text-to-soap" element={<TextToSoap />} />
         <Route path="/users" element={<Users />} />
       </Routes>
@@ -40,12 +44,10 @@ const AnimatedRoutes = () => {
 function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-background text-foreground flex flex-col">
-        <Navbar />
-        <main className="flex-1">
-          <PipelineSimulator />
+      <div className="min-h-screen bg-slate-50 text-slate-900 selection:bg-blue-600/10">
+        <Shell>
           <AnimatedRoutes />
-        </main>
+        </Shell>
       </div>
     </Router>
   );

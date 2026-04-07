@@ -2,6 +2,8 @@ import asyncio
 import logging
 import json
 import httpx
+import re
+from datetime import datetime
 from typing import Dict, List, Optional
 import openai
 from app.core.config import settings
@@ -29,6 +31,82 @@ RULES:
 EXAMPLE:
 Input: "Speaker 1: Good morning sir, I have a headache."
 Output: "Patient: Good morning doctor, I have a headache."
+"""
+
+EMERGENCY_REGISTRATION_PROMPT = """
+You are a precision medical registrar for an Emergency Department.
+Your task is to listen to the conversation and extract the identity information for auto-registration of both Patients and Clinical Staff.
+
+REQUIRED FIELDS:
+1. name: Full name.
+2. age: Age as an integer.
+3. date_of_birth: Extract if mentioned (e.g., "I was born on Jan 1st, 1990"), or ESTIMATE Year from age.
+4. gender: 'Male', 'Female', or 'Other'.
+5. phone: Contact number.
+6. email: Email address.
+7. address: Residence address.
+8. blood_group: A+, A-, B+, B-, AB+, AB-, O+, O-.
+9. specialization: Clinical specialty if staff (e.g. Cardiologist, Nurse, Surgeon).
+10. department: Clinical department if staff (e.g. Emergency, ICU).
+11. license_number: Professional medical license if staff (e.g. REG12345).
+12. experience_years: Years of clinical experience as an integer.
+13. medical_history: List of known chronic conditions.
+14. allergies: List of drug or food allergies.
+
+RULES:
+1. If a value is NOT explicitly mentioned or cannot be inferred, return null for that field.
+2. Standardize gender to 'Male', 'Female', or 'Other'.
+3. Standardize age and experience_years as integers.
+4. Return ONLY a valid JSON object.
+5. If someone mentions "I am 30 years old", set age: 30 and date_of_birth: "Approx. 1996".
+
+EXAMPLE (Staff):
+Input: "My name is Dr. Sarah Smith, a Cardiologist with 12 years of experience. My license is MED9876. Contact me at sarah@hospital.med or 9876543210."
+Output: {
+  "name": "Sarah Smith",
+  "age": null,
+  "date_of_birth": null,
+  "gender": null,
+  "phone": "9876543210",
+  "email": "sarah@hospital.med",
+  "address": null,
+  "blood_group": null,
+  "specialization": "Cardiologist",
+  "department": "Cardiology",
+  "license_number": "MED9876",
+  "experience_years": 12,
+  "medical_history": [],
+  "allergies": []
+}
+
+EXAMPLE (Patient):
+Input: "Speaker 1: Hello, what is your name? Patient: My name is John Doe and I am 45 years old. I live at 123 Main St. I'm allergic to Penicillin."
+Output: {
+  "name": "John Doe",
+  "age": 45,
+  "date_of_birth": "Approx. 1981",
+  "gender": null,
+  "phone": null,
+  "email": null,
+  "address": "123 Main St",
+  "blood_group": null,
+  "specialization": null,
+  "department": null,
+  "license_number": null,
+  "experience_years": null,
+  "medical_history": [],
+  "allergies": ["Penicillin"]
+}
+"""
+
+MISSING_FIELDS_PROMPT = """
+You are a clinical assistant.
+Based on the extracted demographics and the conversation, identify which REQUIRED fields are missing and generate a natural question the doctor should ask the patient to get that information.
+
+REQUIRED FIELDS: name, age, gender, phone.
+
+Return a JSON list of objects: [{"field": "field_name", "question": "The question to ask"}].
+If no required fields are missing, return an empty list [].
 """
 
 EMOTION_ANALYSIS_SYSTEM_PROMPT = """
@@ -117,8 +195,8 @@ OUTPUT STRUCTURE (STRICT JSON)
 
   "patient_history": {
     "past_medical_history": ["ALL prior conditions mentioned by the patient or doctor"],
-    "surgical_history": [],
-    "family_history": ["Signficant family medical history"],
+    "surgical_history": ["LIST EVERY surgery and its year if mentioned. DO NOT OMIT."],
+    "family_history": ["LIST ALL family medical history mentioned (e.g. 'Father: heart problems at 58')."],
     "social_history": {
       "smoking": "",
       "alcohol": "",
@@ -135,6 +213,15 @@ OUTPUT STRUCTURE (STRICT JSON)
     "referrals": "Specialty and Doctor Name if mentioned"
   },
 
+  "ros": {
+    "general": ["e.g., fatigue, weight loss, fever"],
+    "cardiovascular": ["e.g., chest pain, palpitations, edema"],
+    "respiratory": ["e.g., shortness of breath, cough, wheezing"],
+    "gastrointestinal": [],
+    "neurological": [],
+    "musculoskeletal": [],
+    "other": []
+  },
   "billing": {
     "cpt_codes": [
         {"code": "", "description": "", "reasoning": ""}
@@ -161,7 +248,14 @@ STRICT EXTRACTION RULES (ZERO DATA LOSS)
 5. NO HALLUCINATIONS: Do not invent symptoms, history, or values not present in the transcript.
 6. NO GUESSING VITALS: If a numeric vital (BP, HR, Temp, SpO2) is NOT explicitly mentioned, but the doctor asks if it is present or normal (e.g., "Do you have BP?" or "Is your heart rate normal?") and the patient responds, you MUST capture the response as "Yes", "No", or "Normal" in the relevant field. Only return an empty string "" if the vital was never discussed at all. NEVER guess or provide placeholder numeric values.
 7. NO SUGGESTIONS: Do not add external recommendations or diagnoses not explicitly discussed.
-8. VALID JSON ONLY.
+9. CLINICAL CONCISENESS: In all SOAP note sections (Subjective, Objective, Assessment, Plan), provide ONLY exact clinical findings, values, and terms. DO NOT use conversational sentences. (e.g., Use 'Migraine x 3 days, severity 7/10' instead of 'The patient reports they have been experiencing a migraine for the last three days which they rate as a 7 out of 10').
+10. TERM MAPPING: Recognize clinical synonyms and map them to standard terms. For example:
+    - "Sugar", "Glugode", "Glucose", "Diabetes" -> Map to "blood_sugar" or "blood_glucose" in vitals.
+    - "Pressure", "Tension", "BP" -> Map to "blood_pressure" in vitals.
+    - "Pulse", "Beat" -> Map to "heart_rate" in vitals.
+    - "Oxygen", "Saturation", "SpO2" -> Map to "oxygen_saturation" in vitals.
+    - "Temperature", "Fever", "Heat" -> Map to "temperature" in vitals.
+11. VALID JSON ONLY.
 
 ---------------------------------------
 INPUT:
@@ -175,7 +269,6 @@ Return ONLY JSON in English
 class MedicalRedactor:
     """Utility to mask PII/PHI before data leaves the local server."""
     def __init__(self):
-        import re
         # Names (basic heuristic: common titles followed by Cap names)
         self.name_pattern = re.compile(r'\b(?:Mr\.|Ms\.|Mrs\.|Dr\.)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b')
         # Dates of Birth: MM/DD/YYYY, YYYY-MM-DD
@@ -189,7 +282,6 @@ class MedicalRedactor:
 
     def redact_pii(self, text: str) -> str:
         if not text: return ""
-        import re
         
         redacted = text
         redacted = self.name_pattern.sub("[NAME]", redacted)
@@ -383,7 +475,6 @@ class MedicalNLPService:
         text_lower = text.lower()
 
         # 1. Regex-based matching for common 5-digit CPT codes explicitly mentioned
-        import re
         cpt_candidates = re.findall(r'\b(99\d{3}|93000|94640|36415|80053|80061|85025)\b', text)
         cpt_descriptions = {
             "99213": "Office visit, established, low-mod complexity",
@@ -495,7 +586,6 @@ class MedicalNLPService:
         Robust rule-based extraction that correctly parses vitals, medications, diagnoses,
         past medical history, follow-up dates, referrals, and warning signs.
         """
-        import re
         lines = transcript.split('\n')
         symptoms_str = ""  # Pre-initialize
 
@@ -541,12 +631,14 @@ class MedicalNLPService:
         lifestyle_mods = []
         precautions = []
         pmh_conditions = []
+        family_history = []
+        surgical_history = []
         aggravating_factors = []
         clean_lines = []
         follow_up_timeline = "As needed"
         warning_signs = []
         allergies = []
-        last_role = "Doctor"
+        last_role = "Patient"
 
         # ── Vital-sign patterns (spoken English aware) ────────────────────────────
         vital_patterns = {
@@ -597,8 +689,8 @@ class MedicalNLPService:
             line_lower = stripped.lower()
 
             # ── Speaker detection ─────────────────────────────────────────────────
-            is_doctor = line_lower.startswith("doctor:")
-            is_patient = line_lower.startswith("patient:")
+            is_doctor = line_lower.startswith("doctor:") or any(k in line_lower for k in ["how are you", "prescribe", "assessment", "diagnosis is", "examine you", "your vitals", "take a seat", "have a seat"])
+            is_patient = line_lower.startswith("patient:") or any(k in line_lower for k in ["i feel", "hello doctor", "my history", "i've had", "i have had", "thank you doctor"])
 
             if not is_doctor and not is_patient:
                 if last_role == "Doctor":
@@ -803,6 +895,23 @@ class MedicalNLPService:
                     if "No known drug allergies" not in allergies:
                         allergies.append("No known drug allergies")
 
+            # ── 12. Family History ────────────────────────────────────────────────
+            family_members = ["father", "mother", "sister", "brother", "parents", "family", "grandfather", "grandmother", "uncle", "aunt"]
+            if any(fm in content_lower for fm in family_members):
+                family_history_pat = r"((?:father|mother|sister|brother|parents|family|grandfather|grandmother|uncle|aunt).{1,50}?(?:has|had|history of|with|suffers from|problems? at|also has|also had)\s+([A-Za-z][A-Za-z\s]{3,}))"
+                for m in re.finditer(family_history_pat, content_lower):
+                    hist = m.group(1).strip().rstrip("., ")
+                    if hist and hist not in family_history:
+                        family_history.append(hist.capitalize())
+
+            # ── 13. Surgical History ──────────────────────────────────────────────
+            if any(s in content_lower for s in ["surgery", "operation", "removed", "appendectomy", "procedure", "appendix"]):
+                surg_pat = r"([A-Za-z\s]{3,50}?\b(?:removed|surgery|operation|procedure|appendix)\b.{0,30})"
+                for m in re.finditer(surg_pat, content_lower):
+                    surg = m.group(1).strip().rstrip("., ")
+                    if surg and surg not in surgical_history:
+                        surgical_history.append(surg.capitalize())
+
         # ── Post-processing ───────────────────────────────────────────────────────
         full_text = transcript.lower()
         extracted_symptoms = sorted(list(set(
@@ -886,8 +995,8 @@ class MedicalNLPService:
             },
             "patient_history": {
                 "past_medical_history": pmh_conditions,
-                "surgical_history": [],
-                "family_history": [],
+                "surgical_history": surgical_history,
+                "family_history": family_history,
                 "social_history": {
                     "smoking": "Yes" if any(k in full_text for k in ["smok", "cigarette", "tobacco"]) else "None reported",
                     "alcohol": "Yes" if "alcohol" in full_text else "None reported",
@@ -1046,9 +1155,9 @@ class MedicalNLPService:
             vitals = {}
             patterns = {
                 "blood_pressure": [
-                    r"blood pressure[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
+                    r"(?:blood pressure|bp|tension)[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
                     r"\bbp[^\d]*(\d{2,3})(?:\s*(?:over|/|-|\.)\s*(\d{2,3}))?",
-                    r"(?:have|has|any|check)\s+(?:blood pressure|bp)[^\?]*\?\s+(?:patient:\s*)?(yes|no|normal|high|low)",
+                    r"(?:have|has|any|check)\s+(?:blood pressure|bp|tension)[^\?]*\?\s+(?:patient:\s*)?(yes|no|normal|high|low)",
                 ],
                 "heart_rate": [
                     r"(?:pulse|heart rate|hr)[^\d]*(\d{2,3})\s*(?:beats? per minute|bpm|/min)?",
@@ -1063,8 +1172,8 @@ class MedicalNLPService:
                     r"(?:oxygen|spo2|saturation)\s+is\s+(normal|good|low|fine|yes|no)",
                 ],
                 "blood_sugar": [
-                    r"(?:random blood sugar|blood sugar|glucose|rbs|fbs)[^\d]*(\d{2,4})\s*(?:mg[/.]?dl|mg%|mmol)?",
-                    r"(?:sugar|diabetes|glucose)\s+(?:is|levels|any)\s+(normal|high|low|controlled|yes|no)",
+                    r"(?:random blood sugar|blood sugar|glucose|glugode|glu|rbs|fbs|sug)[^\d]*(\d{2,4})\s*(?:mg[/.]?dl|mg%|mmol)?",
+                    r"(?:sugar|diabetes|glucose|glugode)\s+(?:is|levels|any)\s+(normal|high|low|controlled|yes|no)",
                 ],
                 "temperature": [
                     r"(?:temperature|temp)[^\d]*(\d{2,3}(?:\.\d)?)\s*(?:degrees?|°)?\s*(?:fahrenheit|celsius|f\b|c\b)?",
@@ -1129,13 +1238,21 @@ class MedicalNLPService:
 
         try:
             if self.client:
+                # Use a larger model if available, otherwise fallback
+                model_name = settings.OPENAI_API_MODEL
+                if "gpt-3.5" in model_name: 
+                    # Prefer GPT-4o-mini or GPT-4o for complex scribing if the key allows, 
+                    # but stick to settings unless specifically overridden
+                    pass
+                
                 response = await self.client.chat.completions.create(
-                    model=settings.OPENAI_API_MODEL if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
+                    model=model_name if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
                     messages=[
                         {"role": "system", "content": PRECISE_SCRIBE_SYSTEM_PROMPT},
                         {"role": "user", "content": f"INPUT:\n{full_input}"}
                     ],
                     response_format={"type": "json_object"},
+                    max_tokens=4000, # Large enough for exhaustive SOAP + transcript
                     temperature=0.0 # High precision
                 )
                 raw_data = json.loads(response.choices[0].message.content)
@@ -1182,6 +1299,7 @@ class MedicalNLPService:
                     "assessment": ensure_dict(raw_data.get("assessment")),
                     "plan": ensure_dict(raw_data.get("plan")),
                     "follow_up": ensure_dict(raw_data.get("follow_up")),
+                    "ros": ensure_dict(raw_data.get("ros")),
                     "extracted_diagnosis": [
                         (d["name"] if isinstance(d, dict) else str(d)) 
                         for d in ensure_list(raw_data.get("extracted_entities", {}).get("diagnoses", []))
@@ -1211,7 +1329,8 @@ class MedicalNLPService:
                     "objective": ensure_dict(soap_data.get("objective")),
                     "assessment": ensure_dict(soap_data.get("assessment")),
                     "plan": ensure_dict(soap_data.get("plan")),
-                    "follow_up": ensure_dict(soap_data.get("follow_up"))
+                    "follow_up": ensure_dict(soap_data.get("follow_up")),
+                    "ros": ensure_dict(soap_data.get("ros"))
                 },
                 "extracted_symptoms": ensure_list(soap_data.get("extracted_entities", {}).get("symptoms", [])),
                 "extracted_diagnosis": ensure_list(soap_data.get("extracted_entities", {}).get("diagnoses", [])),
@@ -1309,7 +1428,7 @@ class MedicalNLPService:
         Text: "{text}"
         
         Return ONLY a JSON object with:
-        "section": "subjective" | "objective" | "assessment" | "plan" | "none"
+        "section": "subjective" | "objective" | "assessment" | "plan" | "ros" | "none"
         "cleaned_text": "<concise clinical version of the fragment>"
         """
         
@@ -1342,7 +1461,8 @@ class MedicalNLPService:
                               "subjective": "history_of_present_illness",
                               "objective": "physical_examination", # We'll handle nested later
                               "assessment": "clinical_reasoning",
-                              "plan": "precautions"
+                              "plan": "precautions",
+                              "ros": "general"
                           }
                           
                           section_data = getattr(encounter.soap_note, section, {})
@@ -1405,9 +1525,10 @@ class MedicalNLPService:
                 response = await self.client.chat.completions.create(
                     model=settings.OPENAI_API_MODEL,
                     messages=[
-                        {"role": "system", "content": "You are a medical transcriptionist specialized in role identification."},
+                        {"role": "system", "content": "You are a medical transcriptionist specialized in role identification. Your goal is to split merged turns and identify speakers accurately."},
                         {"role": "user", "content": prompt}
                     ],
+                    max_tokens=4000,
                     temperature=0.0
                 )
                 return response.choices[0].message.content.strip()
@@ -1428,18 +1549,23 @@ class MedicalNLPService:
 
         prompt = f"""
         Analyze this medical conversation segment and return a JSON object.
-        Segment: {speaker}: {text}
+        PREVIOUS_SPEAKER: {speaker}
+        SEGMENT: {text}
         
-        STRICT RULE: ONLY include values in "vitals" if they ARE EXPLICITLY SPOKEN in the segment. Otherwise, return empty strings (""). NEVER GUESS OR INVENT NUMBERS.
+        STRICT RULES:
+        1. "detected_role": Evaluate if the speaker of the SEGMENT is the Doctor or the Patient. If the content sounds like a response to the PREVIOUS_SPEAKER, identify the role change correctly.
+        2. "cleaned_text": Professional medical version of the segment. DO NOT include "Doctor:" or "Patient:" labels in the cleaned_text.
+        3. "vitals": ONLY include values EXPLICITLY SPOKEN. No guessing.
+        4. "soap_section": Map the segment to the most relevant SOAP section.
 
         RETURN ONLY JSON:
         {{
-          "cleaned_text": "Professional medical version of the segment",
+          "cleaned_text": "...",
           "detected_role": "Doctor" | "Patient",
-          "emotions": [{{ "emotion": "Name", "confidence": 0.0, "indicators": [] }}],
+          "emotions": [],
           "vitals": {{ "temp": "", "bp": "", "hr": "", "spo2": "" }},
-          "soap_section": "subjective" | "objective" | "assessment" | "plan" | "none",
-          "soap_content": "Clean clinical summary of this specific segment"
+          "soap_section": "...",
+          "soap_content": "..."
         }}
         """
         
@@ -1461,5 +1587,352 @@ class MedicalNLPService:
             
         return {"cleaned_text": text, "detected_role": speaker, "soap_section": "none"}
 
-medical_nlp_service = MedicalNLPService()
+    async def extract_demographics(self, text: str, fast: bool = False) -> Dict:
+        """
+        Extracts patient demographics from text using LLM, with a high-fidelity rule-based fallback.
+        'fast' mode skips LLM for near-instant results (best for live typing/voice).
+        """
+        if not text.strip():
+            return {}
 
+        results = {}
+        # 1. Try LLM only if not in fast mode
+        if not fast:
+            try:
+                if self.client:
+                    response = await self.client.chat.completions.create(
+                        model=settings.OPENAI_API_MODEL if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
+                        messages=[
+                            {"role": "system", "content": EMERGENCY_REGISTRATION_PROMPT},
+                            {"role": "user", "content": f"Extract demographics from this transcript:\n\n{text[-4000:]}"}
+                        ],
+                        response_format={"type": "json_object"},
+                        max_tokens=400,
+                        temperature=0.0
+                    )
+                    results = json.loads(response.choices[0].message.content)
+                elif self.ollama_url:
+                    prompt = f"{EMERGENCY_REGISTRATION_PROMPT}\n\nExtract from: {text[-3000:]}"
+                    response_text = await self._call_ollama(prompt, json_mode=True)
+                    results = json.loads(response_text)
+            except Exception as e:
+                logger.error(f"LLM Demographics extraction error: {e}")
+
+        # 2. If LLM returned nothing or failed, OR if some fields are missing, use Rule-Based Fallback
+        if not results or not results.get("name"):
+            rule_results = self._extract_demographics_rule_based(text)
+            # Merge rule-based results if LLM missed them
+            if not results:
+                results = rule_results
+            else:
+                for k, v in rule_results.items():
+                    if not results.get(k): results[k] = v
+        
+        return results
+
+    def _extract_demographics_rule_based(self, text: str) -> Dict:
+        """High-Performance Rule-Based Extraction for Demographic Data."""
+        # Clean transcript for common speech-to-text artifacts
+        text = text.replace(" at ", "@").replace(" dot ", ".").replace(" point ", ".")
+        # De-space common acronyms (r e g -> reg, l i c -> lic)
+        text = re.sub(r"\b(r\s+e\s+g|l\s+i\s+c)\b", lambda m: m.group(0).replace(" ", ""), text, flags=re.I)
+        # Handle common "gender" mis-transcriptions
+        text = re.sub(r"\b(general|central)\s+(mail|male)\b", "gender male", text, flags=re.I)
+        text = re.sub(r"\b(general|central)\s+(female)\b", "gender female", text, flags=re.I)
+        text_lc = text.lower()
+        
+        # 1. Name Patterns: "name Arun", "my name is X", "I am X", "Patient: X", "Arun here"
+        name = None
+        # Pattern 1: Explicit labels
+        name_match = re.search(r"(?:name\s*(?:is|:)|called|i\s*am|patient\s*(?:is|:)|here\s*is|this\s*is)\s+([a-z][a-z\s.-]+?)(?=\s+(?:is|age|and|lives|born|at|from|with|gmail|mail|\d)|[\.,?!]|$)", text, re.I)
+        if name_match:
+            name = name_match.group(1).strip().title()
+        
+        # Pattern 2: Start of sentence if very short (e.g. "Arun Cooper.")
+        if not name:
+            start_name = re.match(r"^([A-Z][a-z]+ [A-Z][a-z]+)", text)
+            if start_name:
+                name = start_name.group(1).title()
+
+        if name:
+            # De-duplicate words (e.g. "Arun Arun" -> "Arun")
+            parts = name.split()
+            seen = set()
+            name = " ".join([x for x in parts if not (x.lower() in seen or seen.add(x.lower()))])
+        
+        # If still no name, and the text starts with a word followed by data: "Arun gmail.com..."
+        if not name:
+            # Expand blacklist with common conjunctions and prepositions
+            blacklist = ["blood", "patient", "allergic", "hurting", "pain", "doctor", "history", "living", "lives", "born", "age", "i am", "name", "the", "this", "there", "and", "with", "for", "from", "about", "some", "but"]
+            start_name_match = re.match(r"^([a-z]+(?:\s+[a-z]+){0,2})\b", text, re.I)
+            if start_name_match:
+                guess = start_name_match.group(1).strip()
+                if len(guess) > 2 and not any(b == guess.lower() for b in blacklist):
+                    name = guess.title()
+                    # De-duplicate words
+                    parts = name.split()
+                    seen = set()
+                    name = " ".join([x for x in parts if not (x.lower() in seen or seen.add(x.lower()))])
+
+        # 2. Age Patterns: Permissive but careful
+        age = None
+        # Pattern 2a: Explicit "X years old"
+        age_match = re.search(r"(\d{1,3})\s*(?:years?\s*old|yrs?\s*old|age|y/o|yo)", text_lc)
+        if age_match:
+            age = int(age_match.group(1))
+        
+        # Pattern 2b: Context-driven (Look for numbers near "Doctor: age?" or "Patient:")
+        if not age:
+            # Look for "Doctor: ... age? ... Patient: [numbers]"
+            doctor_age_q = re.search(r"doctor:.*age.*\npatient:.*?(\d{1,3})", text_lc, re.S)
+            if doctor_age_q:
+                age = int(doctor_age_q.group(1))
+            else:
+                # Last resort: just a naked number in a patient turn if we are looking for age
+                patient_naked_num = re.search(r"patient:.*?(\d{1,2})\b", text_lc, re.I)
+                if patient_naked_num and not age:
+                    age = int(patient_naked_num.group(1))
+        
+        # 3. Date of Birth Patterns: Handle full dates, TRIGGERLESS, and Verbal dates
+        date_of_birth = None
+        # Month map for verbal dates
+        months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+        verbal_match = re.search(r"(\d{1,2})\s*(" + "|".join(months) + r")[a-z]*\s*(\d{2,4})", text_lc)
+        
+        if verbal_match:
+            d, m_str, y = verbal_match.groups()
+            m = str(months.index(m_str[:3]) + 1).zfill(2)
+            if len(y) == 2: y = f"20{y}" if int(y) < 30 else f"19{y}"
+            date_of_birth = f"{y}-{m}-{d.zfill(2)}"
+        else:
+            # Numeric formats
+            dob_match = re.search(r"(?:born|dob|date of|of birth|do b)\s*[:\-\s]*(\d{1,2})[\s\-\/](\d{1,2})[\s\-\/](\d{2,4})", text_lc)
+            if not dob_match:
+                # Triggerless: Sequence of 3 numbers
+                dob_match = re.search(r"\b(\d{1,2})[\s\-\/](\d{1,2})[\s\-\/](\d{2,4})\b", text_lc)
+            
+            if dob_match:
+                v1, v2, y = dob_match.groups()
+                d, m = (v1, v2) if int(v1) > 12 else (v2, v1) if int(v2) > 12 else (v1, v2)
+                if len(y) == 2: y = f"20{y}" if int(y) < 30 else f"19{y}"
+                try: date_of_birth = f"{y}-{m.zfill(2)}-{d.zfill(2)}"
+                except: pass
+            else:
+                # Fallback for Month and Year only
+                my_match = re.search(r"(?:born|dob|date of|of birth)\s*[:\-\s]*(\d{1,2})[\s\-\/](\d{4})", text_lc)
+                if my_match:
+                    m, y = my_match.groups()
+                    date_of_birth = f"{y}-{m.zfill(2)}-01"
+        
+        # 4. Gender Inference (High-Fidelity)
+        gender = None
+        if re.search(r"\b(male|boy|gentleman|man|sir|he|his|him|mister|mr)\b", text_lc): gender = "Male"
+        elif re.search(r"\b(female|girl|lady|woman|madam|she|her|hers|miss|ms|mrs)\b", text_lc): gender = "Female"
+        
+        # Handle "Md" as a common mis-transcription of "Male" or "M"
+        if not gender and re.search(r"\b(md|m|f)\b", text_lc):
+            if "md" in text_lc or " m " in text_lc: gender = "Male"
+            elif " f " in text_lc: gender = "Female"
+
+        # Immediate prefix check: "Patient: Male"
+        if "patient: male" in text_lc: gender = "Male"
+        if "patient: female" in text_lc: gender = "Female"
+        
+        # 5. Phone Number (Improved Regex for Indian/International formats)
+        phone = None
+        # Clean transcript for phone search (keeping only digits)
+        digits_only = "".join(re.findall(r"\d", text))
+        # Look for 10-digit sequence first (likely phone)
+        phone_match = re.search(r"([6-9]\d{9})", digits_only)
+        if not phone_match:
+            # Fallback to any 8-12 digits if not a 10-digit mobile sequence
+            phone_match = re.search(r"(\d{8,12})", digits_only)
+        
+        if phone_match:
+            phone = phone_match.group(1)
+            # Basic validation: ensure it's not a year (like 2000)
+            if phone in [str(y) for y in range(1900, 2100)]:
+                phone = None
+
+        # 6. Email Detection (Advanced)
+        email = None
+        # Pattern 6a: Standard user@domain.com
+        email_match = re.search(r"([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})", text_lc)
+        if email_match:
+            email = email_match.group(1).replace(" ", "")
+        else:
+            # Pattern 6b: Triggered "email is arun gmail.com"
+            trigger_match = re.search(r"email\s*(?:is|:)?\s*([a-z0-9._%+-]+)\s*(?:gmail|yahoo|outlook|hotmail)\.com", text_lc)
+            if trigger_match:
+                # Strip trailing dots or dashes from the prefix
+                prefix = trigger_match.group(1).rstrip(".")
+                email = f"{prefix}@gmail.com"
+            elif "gmail.com" in text_lc:
+                # Last resort: try to find a word before gmail.com
+                last_resort = re.search(r"\b([a-z0-9._%+-]+)\s*gmail\.com", text_lc)
+                if last_resort:
+                    prefix = last_resort.group(1).rstrip(".")
+                    email = f"{prefix}@gmail.com"
+                else:
+                    prefix = name.lower().replace(' ', '') if name else "user"
+                    email = f"{prefix}@gmail.com"
+        
+        # 7. Blood Group (Extremely Aggressive & Fast)
+        blood_group = None
+        # 7a. Triggered: "Blood group O positive", "Hematic type AB negative"
+        bg_trig = re.search(r"(?:blood|hematics?)\s*(?:group|type)?\s*[:\-]?\s*(ab|a|b|o|ab\+?|a\+?|b\+?|o\+?)\b\s*(positive|negative|plus|minus|\+|\-)?", text_lc)
+        if bg_trig:
+            bg_type, bg_suff = bg_trig.groups()
+            bg_type = bg_type.upper().strip("+")
+            bg_map = {"positive": "+", "negative": "-", "plus": "+", "minus": "-", "+": "+", "-": "-"}
+            suff = bg_map.get(bg_suff, "+") if bg_suff else "+"
+            if bg_type in ["A", "B", "AB", "O"]:
+                blood_group = f"{bg_type}{suff}"
+        
+        # 7b. Triggerless: "She is O positive", "Arun is B+", "AB negative"
+        if not blood_group:
+            bg_direct = re.search(r"\b(ab|a|b|o)\b\s*(positive|negative|plus|minus|\+|\-)", text_lc)
+            if bg_direct:
+                bg_type, bg_suff = bg_direct.groups()
+                bg_map = {"positive": "+", "negative": "-", "plus": "+", "minus": "-", "+": "+", "-": "-"}
+                blood_group = f"{bg_type.upper()}{bg_map[bg_suff]}"
+        
+        if not blood_group:
+             bg_short = re.search(r"\b(ab|a|b|o)(\+|\-)\b", text_lc)
+             if bg_short:
+                 blood_group = bg_short.group(1).upper() + bg_short.group(2)
+        
+        # 10. Staff Credentials (Aggressive)
+        specialization = None
+        # Pattern 10a: Keyword list with mis-transcription fallbacks
+        spec_map = {
+            "Cardiologist": ["cardiologist", "cardiology", "colleges", "college"],
+            "Neurologist": ["neurologist", "neurology", "neuro"],
+            "Orthopedic": ["orthopedic", "ortho"],
+            "Pediatrician": ["pediatrician", "peds", "pediatric"],
+            "Surgeon": ["surgeon", "surgery"],
+            "Gynecologist": ["gynecologist", "gyne", "gynac"],
+            "Dermatologist": ["dermatologist", "dermato", "skin"],
+            "Clinical Lead": ["clinical lead", "colleague", "lead"]
+        }
+        for real_spec, keywords in spec_map.items():
+            if any(k in text_lc for k in keywords):
+                specialization = real_spec
+                break
+
+        # Pattern 10b: Triggered "specialist in Cardiology"
+        if not specialization:
+            spec_match = re.search(r"(?:specialist in|specialization is|physician in)\s+([a-z]+)\b", text_lc)
+            if spec_match: specialization = spec_match.group(1).title()
+        
+        department = None
+        # Pattern 11a: Keyword list
+        for d in ["Emergency", "ICU", "OPD", "Radiology", "Pharmacy", "Cardiology", "Neurology", "Ward", "Laboratory"]:
+            if d.lower() in text_lc: department = d
+        # Pattern 11b: Triggered "working in ICU"
+        dept_match = re.search(r"(?:working in|department is|dep is)\s+([a-z0-9]+)\b", text_lc)
+        if dept_match: department = dept_match.group(1).upper() if len(dept_match.group(1)) <= 3 else dept_match.group(1).title()
+
+        # 12. Staff License & Experience
+        license_number = None
+        # Handle spaced out "r e g 1 2 3" or "reg 123"
+        lic_txt = re.sub(r"\s+", "", text_lc)
+        lic_match = re.search(r"(?:license|registration|reg|lic)[is:]*([a-z0-9]{4,15})", lic_txt)
+        if lic_match: license_number = lic_match.group(1).upper()
+
+        experience_years = None
+        exp_match = re.search(r"(\d{1,2})\s*(?:years?|yrs?|yr)?\s*(?:of)?\s*experience", text_lc)
+        if exp_match: experience_years = int(exp_match.group(1))
+        elif not experience_years:
+            # Fallback for just "X years" if it's likely a professional context or age not found
+            if not age:
+                exp_simple = re.search(r"(\d{1,2})\s*(?:years?|yrs?|yr)\b", text_lc)
+                if exp_simple: experience_years = int(exp_simple.group(1))
+
+        # 8. Address Detection
+        address = None
+        addr_match = re.search(r"(?:lives? at|living at|address is|residence is|address)\s*[:\-]?\s*([a-z0-9\s,]+?)(?=\s+(?:and|is|born|at|from|with)|\.|\n|$)", text_lc)
+        if addr_match:
+            address = addr_match.group(1).strip().title()
+
+        # 9. Medical History & Allergies
+        medical_history = []
+        conditions = ["hypertension", "diabetes", "asthma", "thyroid", "cholesterol", "anemia", "cancer", "migraine"]
+        for c in conditions:
+            if c in text_lc:
+                medical_history.append(c.title())
+
+        allergies = []
+        # Support common allergies with mis-transcription fallbacks
+        allergy_map = {
+            "peanut": ["peanut", "peanuts"],
+            "penicillin": ["penicillin", "penisilin", "peninsula"],
+            "ibuprofen": ["ibuprofen", "advil", "brufen"],
+            "aspirin": ["aspirin"],
+            "shellfish": ["shellfish", "shrimp", "prawn"],
+            "dairy": ["dairy", "milk", "lactose"],
+            "latex": ["latex"]
+        }
+        for allergy, keywords in allergy_map.items():
+            if any(k in text_lc for k in keywords):
+                allergies.append(allergy.title())
+        # Try finding after "allergic to" as well
+        if "allergic to" in text_lc:
+            m = re.search(r"allergic to ([^.,?!]+)", text, re.I)
+            if m and m.group(1).strip().title() not in allergies:
+                allergies.append(m.group(1).strip().title())
+            
+        return {
+            "name": name,
+            "age": age,
+            "date_of_birth": date_of_birth or (f"Approx. {datetime.now().year - age}" if age else None),
+            "gender": gender,
+            "phone": phone,
+            "email": email,
+            "address": address,
+            "blood_group": blood_group,
+            "specialization": specialization,
+            "department": department,
+            "license_number": license_number,
+            "experience_years": experience_years,
+            "medical_history": medical_history,
+            "allergies": allergies
+        }
+
+    async def identify_missing_fields(self, demographics: Dict, conversation: str) -> List[Dict]:
+        """
+        Identifies missing required demographics and generates questions.
+        """
+        if not self.client and not self.ollama_url:
+            required = ["name", "age", "gender", "phone"]
+            missing = []
+            for field in required:
+                if not demographics.get(field):
+                    q = f"Could you please tell me your {field}?"
+                    if field == "name": q = "What is your full name?"
+                    if field == "phone": q = "What is your contact number?"
+                    missing.append({"field": field, "question": q})
+            return missing
+
+        try:
+            prompt = f"{MISSING_FIELDS_PROMPT}\n\nDemographics: {json.dumps(demographics)}\nConversation: {conversation[-1000:]}"
+            if self.client:
+                response = await self.client.chat.completions.create(
+                    model=settings.OPENAI_API_MODEL if settings.OPENAI_API_KEY else "llama-3.1-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    max_tokens=200,
+                    temperature=0.0
+                )
+                data = json.loads(response.choices[0].message.content)
+                return data.get("missing", data if isinstance(data, list) else [])
+            elif self.ollama_url:
+                response_text = await self._call_ollama(prompt, json_mode=True)
+                data = json.loads(response_text)
+                return data.get("missing", data if isinstance(data, list) else [])
+        except Exception as e:
+            logger.error(f"Missing fields identification error: {e}")
+        
+        return []
+
+medical_nlp_service = MedicalNLPService()

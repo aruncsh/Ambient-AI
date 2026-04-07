@@ -21,6 +21,11 @@ class SuggestRequest(BaseModel):
     transcript: str
 
 
+class ExtractDemographicsRequest(BaseModel):
+    text: str
+    fast: Optional[bool] = False
+
+
 @router.post("/chat")
 async def general_chat(data: ChatRequest):
     """
@@ -52,6 +57,21 @@ async def get_clinical_suggestions(data: SuggestRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/extract-demographics")
+async def extract_demographics(data: ExtractDemographicsRequest):
+    """
+    Extracts patient demographics from a given text string.
+    Useful for voice-assisted form filling.
+    """
+    try:
+        from app.modules.ai.medical_nlp import medical_nlp_service
+        demographics = await medical_nlp_service.extract_demographics(data.text, fast=data.fast)
+        return demographics
+    except Exception as e:
+        logger.error(f"Demographics extraction error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/status")
 async def ai_status():
     """Returns the current AI backend status (OpenAI, Groq, or Ollama)."""
@@ -64,7 +84,7 @@ async def ai_status():
 
     if settings.OPENAI_API_KEY:
         backend = "openai"
-        model = "gpt-4o-mini"
+        model = settings.OPENAI_API_MODEL or "gpt-3.5-turbo"
     elif settings.GROQ_API_KEY:
         backend = "groq"
         model = "llama-3.1-70b-versatile"

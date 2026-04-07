@@ -6,3 +6,7 @@ from .scheduling import router as scheduling
 from .billing import router as billing
 from .ai import router as ai
 from .users import router as users
+from .stats import router as stats
+from .consults import router as consults
+from .teleconsult import router as teleconsult
+from .resource import router as resource

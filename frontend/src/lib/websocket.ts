@@ -1,17 +1,56 @@
 class WSClient {
   private socket: WebSocket | null = null;
+  private currentEncounterId: string | null = null;
 
   connect(encounterId: string, onMessage: (msg: any) => void) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.socket = new WebSocket(`${protocol}//${window.location.host}/ws/${encounterId}`);
+    // Proactive cleanup to avoid race conditions with React re-mounting
+    if (this.socket) {
+      const oldSocket = this.socket;
+      // Remove previous listener to prevent it from triggering a retry
+      oldSocket.onclose = null;
+      oldSocket.onerror = null;
+      oldSocket.close();
+      this.socket = null;
+    }
 
-    this.socket.onmessage = (event) => {
-      onMessage(JSON.parse(event.data));
+    this.currentEncounterId = encounterId;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/${encounterId}`;
+    
+    console.log(`WebSocket: Connecting to ${wsUrl}`);
+    const socket = new WebSocket(wsUrl);
+    this.socket = socket;
+
+    socket.onopen = () => {
+      // Only process if this is still the active socket
+      if (this.socket !== socket) return;
+      console.log("WebSocket: Global Handshake Established");
     };
 
-    this.socket.onclose = () => {
+    socket.onmessage = (event) => {
+      if (this.socket !== socket) return;
+      try {
+        onMessage(JSON.parse(event.data));
+      } catch (err) {
+        console.error("WebSocket: Message parsing error", err);
+      }
+    };
+
+    socket.onclose = () => {
+      if (this.socket !== socket) return;
+      this.socket = null;
       console.log("WebSocket Closed. Retrying...");
-      setTimeout(() => this.connect(encounterId, onMessage), 3000);
+      setTimeout(() => {
+        // Only retry if we haven't switched to another encounter or explicitly disconnected
+        if (this.currentEncounterId === encounterId) {
+          this.connect(encounterId, onMessage);
+        }
+      }, 3000);
+    };
+
+    socket.onerror = (err) => {
+      if (this.socket !== socket) return;
+      console.error("WebSocket: Global Capture Error:", err);
     };
   }
 
@@ -22,7 +61,14 @@ class WSClient {
   }
 
   disconnect() {
-    this.socket?.close();
+    this.currentEncounterId = null;
+    if (this.socket) {
+      const s = this.socket;
+      s.onclose = null;
+      s.onerror = null;
+      s.close();
+      this.socket = null;
+    }
   }
 }
 

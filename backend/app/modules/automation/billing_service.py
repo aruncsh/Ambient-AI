@@ -28,7 +28,7 @@ CPT_PRICING = {
 }
 
 DEFAULT_CPT_PRICE = 500.0
-BASE_FACILITY_FEE = 250.0
+BASE_FACILITY_FEE = 500.0
 
 class BillingService:
     async def generate_claim(self, encounter_id: str, soap_note: Any, encounter_obj: Optional[Encounter] = None) -> Dict:
