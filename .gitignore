@@ -1,6 +1,7 @@
-# Root and Backend folders
-models/
-backend/models/
+# Ignore downloaded AI models, NOT the app models package
+/backend/models/
+/models/
+
 node_modules/
 backend/node_modules/
 recordings/
