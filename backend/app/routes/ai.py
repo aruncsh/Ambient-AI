@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Body
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -108,3 +108,76 @@ async def ai_status():
         "free_mode": backend in ("ollama", "none"),
         "status": "active" if backend != "none" else "limited"
     }
+
+
+class TextToSOAPRequest(BaseModel):
+    text: str
+    specialty: Optional[str] = None
+
+
+@router.post("/voice-to-soap")
+async def voice_to_soap(file: UploadFile = File(...), specialty: Optional[str] = Body(None)):
+    """
+    Direct Voice to SOAP Note endpoint.
+    Accepts an audio file and returns a structured SOAP note.
+    This is the main integration point for external backends.
+    """
+    try:
+        from app.modules.ai.whisper import whisper_service
+        from app.modules.ai.medical_nlp import medical_nlp_service
+        import uuid
+        
+        # 1. Transcribe the audio
+        audio_data = await file.read()
+        if not audio_data:
+            raise HTTPException(status_code=400, detail="Empty audio file")
+            
+        temp_id = f"ext-{uuid.uuid4().hex[:8]}"
+        transcript_text = await whisper_service.transcribe(audio_data, temp_id)
+        
+        if not transcript_text.strip():
+             return {"error": "Silence detected. No speech to process."}
+
+        # 2. Process to SOAP using the high-fidelity scribe
+        soap_results = await medical_nlp_service.process_precise_scribe(transcript_text, specialty=specialty)
+        
+        return {
+            "transcript": transcript_text,
+            "soap": soap_results.get("soap", soap_results.get("clinical_info", {})),
+            "insights": {
+                "symptoms": soap_results.get("extracted_symptoms", []),
+                "diagnoses": soap_results.get("extracted_diagnosis", []),
+                "problem": soap_results.get("identified_problem", "")
+            }
+        }
+    except Exception as e:
+        logger.error(f"Voice-to-SOAP integration error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/text-to-soap")
+async def text_to_soap(data: TextToSOAPRequest):
+    """
+    Direct Text to SOAP Note endpoint.
+    Accepts raw conversation text and returns a structured SOAP note.
+    Useful for backends that already have transcription.
+    """
+    try:
+        from app.modules.ai.medical_nlp import medical_nlp_service
+        
+        if not data.text.strip():
+            raise HTTPException(status_code=400, detail="Empty text provided")
+
+        soap_results = await medical_nlp_service.process_precise_scribe(data.text, specialty=data.specialty)
+        
+        return {
+            "soap": soap_results.get("soap", soap_results.get("clinical_info", {})),
+            "insights": {
+                "symptoms": soap_results.get("extracted_symptoms", []),
+                "diagnoses": soap_results.get("extracted_diagnosis", []),
+                "problem": soap_results.get("identified_problem", "")
+            }
+        }
+    except Exception as e:
+        logger.error(f"Text-to-SOAP integration error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
