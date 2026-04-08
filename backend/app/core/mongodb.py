@@ -25,8 +25,13 @@ async def init_db():
         settings.MONGO_URL,
         serverSelectionTimeoutMS=5000 # 5 second timeout
     )
+    try:
+        db = client.get_default_database()
+    except Exception:
+        db = client["ambient_ai"]
+
     await init_beanie(
-        database=client.get_default_database(),
+        database=db,
         document_models=[
             Encounter,
             SOAPSummary,
