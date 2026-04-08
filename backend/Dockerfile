@@ -10,7 +10,10 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     && rm -rf /var/lib/apt/lists/*
 
+ENV CACHE_BUSTER=20260408_1050
+
 COPY . .
+
 
 RUN pip install --no-cache-dir -r requirements.txt
 
