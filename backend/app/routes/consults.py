@@ -60,6 +60,28 @@ async def list_consults(
     # For now, we pass all query params as filters
     return await consult_service.fetch_consults(filters, limit, page)
 
+@router.get("/count-by-status")
+async def get_consult_count_by_status(
+    request: Request,
+    consult_status: List[str] = Query(...),
+    participant_ref_number: Optional[str] = None,
+    scheduled_from_date: Optional[str] = None,
+    scheduled_to_date: Optional[str] = None,
+    consult_type: Optional[str] = None,
+    consult_id: Optional[str] = None,
+    organization_id: Optional[str] = None
+):
+    filters = {}
+    if participant_ref_number: filters["participant_ref_number"] = participant_ref_number
+    if scheduled_from_date: filters["scheduled_from_date"] = scheduled_from_date
+    if scheduled_to_date: filters["scheduled_to_date"] = scheduled_to_date
+    if consult_type: filters["consult_type"] = consult_type
+    if consult_id: filters["consult_id"] = consult_id
+    if organization_id: filters["organization_id"] = organization_id
+    
+    return await consult_service.get_consult_count_by_status(consult_status, filters)
+
+
 @router.get("/{id}/{role}/{participantId}")
 async def fetch_consult(id: str, role: str, participantId: str):
     result = await consult_service.fetch_consult(id, role, participantId)
@@ -89,6 +111,8 @@ async def consult_switch(id: str, role: str, participantId: str, req: SwitchProv
 
 @router.post("/adjust-ptz-camera")
 async def ptz_camera_access(req: PtzCameraRequest):
-    # This just proxies or logs as per the PHP logic provided
-    # The PHP code uses 'event' to broadcast the URL
-    return {"status": "success", "message": f"PTZ Action {req.action} dispatched"}
+    result = await consult_service.ptz_camera_access(req.consultId, req.action, req.speed)
+    if "error" in result:
+         raise HTTPException(status_code=400, detail=result["error"])
+    return result
+

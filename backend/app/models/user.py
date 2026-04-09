@@ -16,6 +16,7 @@ class Patient(Document):
     allergies: Optional[List[str]] = Field(default_factory=list)
     is_consent_given: bool = False
     is_active: bool = True
+    external_id: Optional[Indexed(str)] = None
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
 
@@ -32,6 +33,7 @@ class Doctor(Document):
     experience_years: Optional[int] = None
     department: Optional[str] = None
     is_active: bool = True
+    external_id: Optional[Indexed(str)] = None
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
 

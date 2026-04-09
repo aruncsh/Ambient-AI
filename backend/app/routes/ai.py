@@ -129,16 +129,24 @@ async def voice_to_soap(file: UploadFile = File(...), specialty: Optional[str] =
         
         # 1. Transcribe the audio
         audio_data = await file.read()
-        if not audio_data:
-            raise HTTPException(status_code=400, detail="Empty audio file")
+        file_size = len(audio_data)
+        logger.info(f"Voice-to-SOAP: Received file {file.filename} ({file_size} bytes)")
+        
+        if file_size < 1000:
+            raise HTTPException(status_code=400, detail=f"Audio file too small ({file_size} bytes)")
             
         temp_id = f"ext-{uuid.uuid4().hex[:8]}"
         transcript_text = await whisper_service.transcribe(audio_data, temp_id)
         
         if not transcript_text.strip():
-             return {"error": "Silence detected. No speech to process."}
+             logger.warning(f"Voice-to-SOAP: Silence detected for {file.filename}")
+             return {
+                 "error": "Silence detected. No speech to process.",
+                 "details": "The AI could not identify any spoken words in the provided audio file. Please check the audio quality and volume."
+             }
 
         # 2. Process to SOAP using the high-fidelity scribe
+        logger.info(f"Voice-to-SOAP: Transcribed {len(transcript_text)} chars. Processing SOAP...")
         soap_results = await medical_nlp_service.process_precise_scribe(transcript_text, specialty=specialty)
         
         return {

@@ -65,26 +65,35 @@ class WhisperService:
                 from app.modules.capture.audio_utils import decode_to_pcm
                 from pydub import AudioSegment
                 
-                # Decode to PCM first
-                pcm_audio = decode_to_pcm(audio_data, encounter_id)
-                if not pcm_audio:
-                    return ""
+                # Check for direct file upload suitability
+                if len(audio_data) > 32000:
+                     # Use .mp3 suffix as OpenAI expects standard extensions
+                     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+                         tmp.write(audio_data)
+                         tmp_path = tmp.name
+                else:
+                    # Decode to PCM first (likely a stream chunk)
+                    pcm_audio = decode_to_pcm(audio_data, encounter_id)
+                    if not pcm_audio:
+                        return ""
+                        
+                    audio_segment = AudioSegment(
+                        data=pcm_audio,
+                        sample_width=2,
+                        frame_rate=16000,
+                        channels=1
+                    )
                     
-                audio_segment = AudioSegment(
-                    data=pcm_audio,
-                    sample_width=2,
-                    frame_rate=16000,
-                    channels=1
-                )
-                
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                    audio_segment.export(tmp.name, format="wav")
-                    tmp_path = tmp.name
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                        audio_segment.export(tmp.name, format="wav")
+                        tmp_path = tmp.name
                 
                 try:
-                    async with httpx.AsyncClient(timeout=30.0) as client:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
                         with open(tmp_path, "rb") as f:
-                            files = {"file": ("audio.wav", f, "audio/wav")}
+                            # Use audio/mpeg for mp3 or audio/wav for wav export
+                            mtype = "audio/mpeg" if tmp_path.endswith(".mp3") else "audio/wav"
+                            files = {"file": (os.path.basename(tmp_path), f, mtype)}
                             data = {
                                 "model": "whisper-1",
                                 "language": "en",
@@ -98,13 +107,17 @@ class WhisperService:
                                 files=files,
                                 data=data
                             )
-                            response.raise_for_status()
+                            if response.status_code != 200:
+                                logger.error(f"OpenAI API Error ({response.status_code}): {response.text}")
+                                return ""
+                                
                             text = response.json().get("text", "")
                             logger.info(f"OpenAI transcription OK: '{text[:50]}...'")
                             return text.strip()
                 finally:
                     if os.path.exists(tmp_path):
-                        os.unlink(tmp_path)
+                        try: os.unlink(tmp_path)
+                        except: pass
             except Exception as e:
                 logger.error(f"OpenAI Whisper API error: {e}.")
                 return ""
@@ -117,20 +130,29 @@ class WhisperService:
                 from pydub import AudioSegment
                 
                 pcm_audio = decode_to_pcm(audio_data, encounter_id)
-                if not pcm_audio:
-                    return ""
-                    
-                cleaned_pcm = suppress_noise(pcm_audio)
-                cleaned_segment = AudioSegment(
-                    data=cleaned_pcm,
-                    sample_width=2,
-                    frame_rate=16000,
-                    channels=1
-                )
                 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-                    cleaned_segment.export(tmp_file.name, format="wav")
-                    tmp_path = tmp_file.name
+                # If PCM decoding failed but we have significant data, 
+                # maybe it's already a valid format (mp3/wav) that whisper can read directly.
+                if not pcm_audio and len(audio_data) > 32000:
+                    logger.info(f"PCM decode failed for {encounter_id}, attempting direct transcription of {len(audio_data)} bytes.")
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".raw_audio") as tmp_file:
+                        tmp_file.write(audio_data)
+                        tmp_path = tmp_file.name
+                elif not pcm_audio:
+                    return ""
+                else:
+                    # Normal path: PCM -> Suppress Noise -> WAV
+                    cleaned_pcm = suppress_noise(pcm_audio)
+                    cleaned_segment = AudioSegment(
+                        data=cleaned_pcm,
+                        sample_width=2,
+                        frame_rate=16000,
+                        channels=1
+                    )
+                    
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+                        cleaned_segment.export(tmp_file.name, format="wav")
+                        tmp_path = tmp_file.name
                 
                 model = self._get_model()
                 if model is None:
@@ -164,11 +186,14 @@ class WhisperService:
                 text = cast(str, await loop.run_in_executor(None, process_audio, model))
                 
                 if tmp_path and os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
+                    try: os.unlink(tmp_path)
+                    except: pass
                 
-                # Hallucination filter
+                # Hallucination filter - relaxed for integration endpoints
                 lower_text = text.lower()
-                if lower_text in ["thank you.", "thanks for watching.", "subscribe.", "beep"] or len(text) < 2:
+                hallucinations = ["thank you.", "thanks for watching.", "subscribe.", "beep", "you"]
+                if (lower_text in hallucinations and len(text) < 15) or len(text) < 2:
+                    logger.warning(f"Whisper hallucination detected or empty: '{text}'")
                     return ""
                 
                 logger.info(f"Whisper transcription OK: '{text[:80]}...' " if len(text) > 80 else f"Whisper transcription OK: '{text}'")

@@ -5,7 +5,7 @@ import {
     Video, Clock, User, ChevronRight, Search, 
     Filter, Activity, Radio, ShieldCheck, 
     Calendar, MoreHorizontal, ArrowRight,
-    Loader2, AlertCircle, Brain
+    Loader2, AlertCircle, Brain, Trash2, PhoneOff
 } from 'lucide-react';
 import { api } from '../lib/api';
 import AppointmentModal from '../components/AppointmentModal';
@@ -21,6 +21,7 @@ interface AppointmentType {
   status: string;
   type?: string;
   reason?: string;
+  additional_info?: any;
 }
 
 const TeleconsultList = () => {
@@ -61,8 +62,30 @@ const TeleconsultList = () => {
         (a.patient_name || a.patient_id).toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const activeSessions = filtered.filter(a => a.status === 'scheduled'); // In a real app maybe 'active'
+    const activeSessions = filtered.filter(a => a.status === 'scheduled');
     const completedSessions = filtered.filter(a => a.status === 'completed');
+    const handleDelete = async (id?: string) => {
+        if (!id || !window.confirm("Delete this appointment and cancel the clinical consult?")) return;
+        try {
+            await api.deleteAppointment(id);
+            fetchAppointments();
+        } catch (err) {
+            console.error("Failed to delete", err);
+        }
+    };
+
+    const handleEndSession = async (appt: AppointmentType) => {
+        if (!window.confirm("End this active teleconsultation session?")) return;
+        try {
+            // If we have an external ID, try to end it
+            // Note: In a real app we'd need the token or the participant details
+            // For now we'll just update local status via api.updateAppointment
+            await api.updateAppointment(appt.id || appt._id || "", 'completed');
+            fetchAppointments();
+        } catch (err) {
+            console.error("Failed to end session", err);
+        }
+    };
 
     return (
         <div className="space-y-10">
@@ -178,21 +201,47 @@ const TeleconsultList = () => {
                                     </div>
                                 </div>
 
-                                <div className="flex items-center gap-6">
+                                <div className="flex items-center gap-4">
                                     {appt.status !== 'completed' ? (
-                                        <button 
-                                            onClick={() => navigate(`/teleconsult/${appt.id || appt._id}`)}
-                                            className="h-16 px-10 rounded-[1.5rem] bg-slate-900 hover:bg-indigo-600 text-white font-black text-sm uppercase tracking-tighter shadow-xl shadow-slate-900/10 transition-all flex items-center gap-3 active:scale-95"
-                                        >
-                                            Join WebRTC Session <ArrowRight size={20} />
-                                        </button>
+                                        <>
+                                            <div className="flex flex-col gap-2">
+                                                <button 
+                                                    onClick={() => navigate(`/teleconsult/${appt.id || appt._id}`)}
+                                                    className="px-6 h-10 bg-indigo-600 hover:bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2"
+                                                >
+                                                    <ShieldCheck size={14} /> Join as Doctor
+                                                </button>
+                                                <button 
+                                                    onClick={() => {
+                                                        const subToken = appt.additional_info?.subscriber_token;
+                                                        if (subToken) {
+                                                            window.open(`https://teleconsult.a2zhealth.in/consult/${subToken}`, '_blank');
+                                                        } else {
+                                                            navigate(`/teleconsult/${appt.id || appt._id}`);
+                                                        }
+                                                    }}
+                                                    className="px-6 h-10 bg-white border-2 border-slate-200 hover:border-indigo-600 text-slate-400 hover:text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2"
+                                                >
+                                                    <User size={14} /> Join as Patient
+                                                </button>
+                                            </div>
+                                            <button 
+                                                onClick={() => handleEndSession(appt)}
+                                                className="h-14 px-6 rounded-2xl bg-white border border-slate-200 text-rose-500 font-black text-[10px] uppercase tracking-widest hover:bg-rose-50 transition-all flex items-center gap-2 active:scale-95"
+                                            >
+                                                <PhoneOff size={16} /> End Call
+                                            </button>
+                                        </>
                                     ) : (
-                                        <div className="h-16 px-10 rounded-[1.5rem] bg-slate-50 text-slate-400 border border-slate-100 flex items-center gap-3 font-black text-[10px] uppercase tracking-widest select-none">
-                                            Session Terminated
+                                        <div className="h-14 px-8 rounded-2xl bg-slate-50 text-slate-400 border border-slate-100 flex items-center gap-2 font-black text-[10px] uppercase tracking-widest select-none">
+                                            Terminated
                                         </div>
                                     )}
-                                    <button className="w-14 h-14 rounded-2xl border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-slate-900 hover:text-white transition-all opacity-0 group-hover:opacity-100">
-                                        <MoreHorizontal size={24} />
+                                    <button 
+                                        onClick={() => handleDelete(appt.id || appt._id)}
+                                        className="w-14 h-14 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-slate-300 hover:bg-rose-500 hover:text-white hover:border-rose-500 transition-all active:scale-90"
+                                    >
+                                        <Trash2 size={24} />
                                     </button>
                                 </div>
                             </motion.div>

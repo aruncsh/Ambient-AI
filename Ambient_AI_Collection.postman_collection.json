@@ -1,0 +1,275 @@
+{
+	"info": {
+		"_postman_id": "8d3e2f5b-1c4d-4e5f-9a1b-0c9d8e7f6a5b",
+		"name": "Ambient AI API",
+		"description": "Comprehensive API collection for Ambient AI Scribe Backend",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "AI Services",
+			"item": [
+				{
+					"name": "Voice to SOAP (Audio Upload)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file"
+								},
+								{
+									"key": "specialty",
+									"value": "General Practice",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/ai/voice-to-soap",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"ai",
+								"voice-to-soap"
+							]
+						},
+						"description": "Upload an audio file and get a full SOAP note and transcript."
+					},
+					"response": []
+				},
+				{
+					"name": "Text to SOAP",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"text\": \"Patient presents with cough and fever since 3 days.\",\n    \"specialty\": \"General Medicine\"\n}",
+							"options": {
+								"json": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/ai/text-to-soap",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"ai",
+								"text-to-soap"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "AI Backend Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/ai/status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"ai",
+								"status"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Clinical Chat",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"message\": \"What are the common differentials for pediatric cough?\",\n    \"history\": []\n}",
+							"options": {
+								"json": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/ai/chat",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"ai",
+								"chat"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Encounters",
+			"item": [
+				{
+					"name": "List Encounters",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/encounters/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"encounters",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Encounter Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/encounters/{{encounter_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"encounters",
+								"{{encounter_id}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Summaries",
+			"item": [
+				{
+					"name": "Get Summary (SOAP)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/summary/{{encounter_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"summary",
+								"{{encounter_id}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Users & Patients",
+			"item": [
+				{
+					"name": "List Patients",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/patients",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"patients"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Doctors",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/doctors",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"doctors"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8001",
+			"type": "string"
+		},
+		{
+			"key": "encounter_id",
+			"value": "replace-with-actual-id",
+			"type": "string"
+		}
+	]
+}

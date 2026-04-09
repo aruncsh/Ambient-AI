@@ -1,3 +1,7 @@
+import torchaudio
+if not hasattr(torchaudio, "list_audio_backends"):
+    torchaudio.list_audio_backends = lambda: ["ffmpeg", "sox_io", "soundfile"]
+
 from fastapi import FastAPI, Request, WebSocket, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
@@ -10,11 +14,16 @@ import asyncio
 import json
 import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("backend_debug.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
-file_handler = logging.FileHandler("ws_debug.log", encoding="utf-8")
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(file_handler)
-logger.setLevel(logging.INFO)
+logger.info("Logging initialized for all modules.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

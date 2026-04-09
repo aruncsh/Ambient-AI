@@ -2,7 +2,6 @@ import numpy as np
 from scipy.signal import butter, lfilter
 import logging
 import io
-from pydub import AudioSegment
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +24,10 @@ def decode_to_pcm(audio_data: bytes, encounter_id: str = "default", sample_rate:
     Decodes encoded audio (webm, ogg, etc.) to raw PCM 16-bit Mono.
     Handles header-less chunks by caching the first chunk's header.
     """
+    from pydub import AudioSegment
     try:
         # Try direct decode
+        logger.info(f"Decoding audio for {encounter_id} (Size: {len(audio_data)} bytes)")
         audio_segment = AudioSegment.from_file(io.BytesIO(audio_data))
         
         # If successful AND it's a first chunk, cache enough as potential header
@@ -48,7 +49,7 @@ def decode_to_pcm(audio_data: bytes, encounter_id: str = "default", sample_rate:
         
         # Log failure only if we really can't get anything
         if len(audio_data) > 1000: # Quietly ignore tiny packets
-            logger.error(f"Decoding failed for {encounter_id}: {e}")
+            logger.error(f"Decoding failed for {encounter_id}: {e} (Attempted on {len(audio_data)} bytes)")
         return b""
 
 def suppress_noise(audio_data: bytes, sample_rate: int = 16000) -> bytes:
