@@ -2,6 +2,13 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
 from app.core.config import settings
 
+# --- MONKEY PATCH FOR BEANIE 1.25.0 BUG ---
+# Older versions of Beanie try to call append_metadata on AsyncIOMotorClient
+# which causes a "MotorDatabase object is not callable" crash on Motor >= 3.6.0
+if not hasattr(AsyncIOMotorClient, "append_metadata"):
+    AsyncIOMotorClient.append_metadata = lambda self, *args, **kwargs: None
+# ------------------------------------------
+
 # Import models for Beanie initialization
 from app.models.encounter import Encounter
 from app.models.soap_summary import SOAPSummary
@@ -18,8 +25,13 @@ async def init_db():
         settings.MONGO_URL,
         serverSelectionTimeoutMS=5000 # 5 second timeout
     )
+    try:
+        db = client.get_default_database()
+    except Exception:
+        db = client["ambient_ai"]
+
     await init_beanie(
-        database=client.get_default_database(),
+        database=db,
         document_models=[
             Encounter,
             SOAPSummary,

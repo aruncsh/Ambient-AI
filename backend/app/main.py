@@ -54,6 +54,15 @@ app.add_middleware(
 async def add_audit_log(request: Request, call_next):
     return await audit_log_middleware(request, call_next)
 
+@app.get("/")
+async def root():
+    return {
+        "message": "Welcome to Ambient AI Scribe API",
+        "version": app.version,
+        "status": "online",
+        "docs": "/docs"
+    }
+
 # Routes
 app.include_router(encounters, prefix="/api/v1/encounters", tags=["Encounters"])
 app.include_router(summary, prefix="/api/v1/summary", tags=["Summaries"])

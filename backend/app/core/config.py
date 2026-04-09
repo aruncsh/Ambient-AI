@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     
     # Infrastructure
-    MONGO_URL: str = "mongodb://localhost:27017/ambient_ai"
+    MONGO_URL: str = "mongodb+srv://ambinetAI:jvGCRs0c0dZZ9tUb@cluster0.sa6kfex.mongodb.net/ambient_ai?appName=Cluster0"
     REDIS_URL: str = "redis://localhost:6379/0"
     FHIR_URL: str = "http://localhost:8080"
     
