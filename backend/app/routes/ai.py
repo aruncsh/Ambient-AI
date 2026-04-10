@@ -136,13 +136,16 @@ async def voice_to_soap(file: UploadFile = File(...), specialty: Optional[str] =
             raise HTTPException(status_code=400, detail=f"Audio file too small ({file_size} bytes)")
             
         temp_id = f"ext-{uuid.uuid4().hex[:8]}"
-        transcript_text = await whisper_service.transcribe(audio_data, temp_id)
+        transcript_text = await whisper_service.transcribe(audio_data, temp_id, is_raw_file=True)
         
+        if transcript_text is None:
+             raise HTTPException(status_code=500, detail="Transcription service failure. Please check API keys and service status.")
+
         if not transcript_text.strip():
              logger.warning(f"Voice-to-SOAP: Silence detected for {file.filename}")
              return {
                  "error": "Silence detected. No speech to process.",
-                 "details": "The AI could not identify any spoken words in the provided audio file. Please check the audio quality and volume."
+                 "details": "The AI could not identify any spoken words in the provided audio file. If there was speech, check the audio format or quality."
              }
 
         # 2. Process to SOAP using the high-fidelity scribe

@@ -27,4 +27,5 @@ torch>=2.0.0
 torchaudio>=2.0.0
 speechbrain>=1.0.0
 webrtcvad-wheels>=2.0.10
+faster-whisper>=1.0.0
 

@@ -344,19 +344,17 @@ class MedicalNLPService:
             return ""
 
         if not self.client and not self.ollama_url:
-            # Fallback/Mock cleaning logic if no API key
-            # 1. Remove fillers
+            # Basic rule-based cleaning if no LLM provider is configured
+            logger.warning(f"No LLM provider configured. Using basic rule-based cleaning for {speaker}.")
             cleaned = raw_text
             for filler in ["um", "uh", "hmm", "like", "you know"]:
                 cleaned = cleaned.replace(f" {filler} ", " ").replace(f"{filler.capitalize()} ", "").strip()
             
-            # 2. Remove word repetitions like "Okay. Okay. Okay."
-            import re
+            # Remove word repetitions
             cleaned = re.sub(r'(\b\w+\b)(?:[.?!,\s]+\1){2,}', r'\1', cleaned, flags=re.I)
             
             if not cleaned:
                 return ""
-                
             return f"{speaker}: {cleaned}"
 
         # 1. Try OpenAI/Groq Client
