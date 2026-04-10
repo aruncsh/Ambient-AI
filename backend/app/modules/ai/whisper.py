@@ -34,15 +34,23 @@ class WhisperService:
 
             model_size = getattr(settings, "WHISPER_MODEL", "small")
             logger.info(f"Loading local Faster-Whisper model ({model_size})...")
+            
+            # Use /tmp for model storage on Render/Linux to avoid read-only mount issues
             model_path = os.path.join(os.getcwd(), "models")
+            if os.name != "nt" and os.path.exists("/tmp"):
+                 model_path = "/tmp/whisper_models"
+                 
             if not os.path.exists(model_path):
-                os.makedirs(model_path)
+                try: 
+                    os.makedirs(model_path, exist_ok=True)
+                except: 
+                    model_path = tempfile.gettempdir()
                 
             WhisperService._model = WhisperModel(
                 model_size, 
                 device="cpu", 
                 compute_type="int8",
-                cpu_threads=8,
+                cpu_threads=max(1, os.cpu_count() or 4),
                 download_root=model_path,
                 local_files_only=False
             )
@@ -58,44 +66,58 @@ class WhisperService:
             
         is_raw_file = kwargs.get("is_raw_file", False)
         
-        if provider == "mock":
-             logger.warning(f"Mock provider requested for {encounter_id} - this should not happen in production.")
-             return ""
-            
-        if provider == "openai" and settings.OPENAI_API_KEY:
+        logger.info(f"Whisper: Starting transcription for {encounter_id} using provider: {provider}")
+        
+        if provider == "openai":
+            if not settings.OPENAI_API_KEY:
+                logger.error(f"OpenAI key missing. Cannot use openai provider for {encounter_id}")
+                return ""
             try:
                 import httpx
                 from app.modules.capture.audio_utils import decode_to_pcm
                 from pydub import AudioSegment
                 
+                filename = kwargs.get("filename", "audio.mp3")
+                ext = os.path.splitext(filename)[1] or ".mp3"
+                if ext.lower() not in [".mp3", ".wav", ".webm", ".m4a", ".ogg"]:
+                    ext = ".mp3" # Force standard Whisper-friendly extension
+                
                 # Use direct file path if it's a raw file or large enough to be one
-                if is_raw_file or len(audio_data) > 32000:
-                     # Use .mp3 suffix as OpenAI expects standard extensions
-                     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+                if is_raw_file or len(audio_data) > 64000:
+                     # Preserve the original extension if known
+                     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
                           tmp.write(audio_data)
                           tmp_path = tmp.name
                 else:
-                    # Decode to PCM first (likely a stream chunk)
-                    pcm_audio = decode_to_pcm(audio_data, encounter_id)
-                    if not pcm_audio:
-                        return ""
+                    # Small chunk: likely a stream segment that needs PCM decoding
+                    try:
+                        pcm_audio = decode_to_pcm(audio_data, encounter_id)
+                        if not pcm_audio: return ""
+                            
+                        audio_segment = AudioSegment(
+                            data=pcm_audio,
+                            sample_width=2,
+                            frame_rate=16000,
+                            channels=1
+                        )
                         
-                    audio_segment = AudioSegment(
-                        data=pcm_audio,
-                        sample_width=2,
-                        frame_rate=16000,
-                        channels=1
-                    )
-                    
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                        audio_segment.export(tmp.name, format="wav")
-                        tmp_path = tmp.name
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                            audio_segment.export(tmp.name, format="wav")
+                            tmp_path = tmp.name
+                    except Exception as e:
+                        # Fallback: if pydub/ffmpeg fails, try saving and uploading raw
+                        logger.warning(f"Audio processing failed ({e}). Attempting raw upload fallback.")
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                            tmp.write(audio_data)
+                            tmp_path = tmp.name
                 
                 try:
-                    async with httpx.AsyncClient(timeout=60.0) as client:
+                    async with httpx.AsyncClient(timeout=90.0) as client:
                         with open(tmp_path, "rb") as f:
-                            # Use audio/mpeg for mp3 or audio/wav for wav export
-                            mtype = "audio/mpeg" if tmp_path.endswith(".mp3") else "audio/wav"
+                            # Map extensions to mime types
+                            m_map = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".webm": "audio/webm", ".m4a": "audio/mp4", ".ogg": "audio/ogg"}
+                            mtype = m_map.get(os.path.splitext(tmp_path)[1].lower(), "audio/mpeg")
+                            
                             files = {"file": (os.path.basename(tmp_path), f, mtype)}
                             data = {
                                 "model": "whisper-1",
@@ -162,10 +184,15 @@ class WhisperService:
                 
                 model = self._get_model()
                 if model is None:
+                    # Robust failover to API-based providers if local model fails to load (common on low-RAM environments like Render)
                     if settings.OPENAI_API_KEY:
                         logger.warning(f"Local Whisper model failed to load. Falling back to OpenAI for {encounter_id}")
                         return await self.transcribe(audio_data, encounter_id, provider="openai", **kwargs)
-                    logger.error(f"No transcription providers available for {encounter_id}")
+                    elif settings.GROQ_API_KEY:
+                        logger.warning(f"Local Whisper model failed to load. Falling back to Groq for {encounter_id}")
+                        return await self.transcribe(audio_data, encounter_id, provider="groq", **kwargs)
+                    
+                    logger.error(f"No transcription providers available or configured for {encounter_id}")
                     return ""
 
                 loop = asyncio.get_event_loop()

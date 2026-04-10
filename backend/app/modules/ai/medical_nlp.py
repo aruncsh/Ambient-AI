@@ -1074,7 +1074,10 @@ class MedicalNLPService:
         Generates a full, professional SOAP note from the transcript using the LLM.
         """
         if not self.client and not self.ollama_url:
+            logger.warning(f"MedicalNLP: No LLM detected (OpenAI/Groq/Ollama missing). Falling back to rule-based extraction for transcript of length {len(transcript)}")
             return await self._rule_based_soap_extraction(str(transcript))
+            
+        logger.info(f"MedicalNLP: Using {'LLM Client' if self.client else 'Ollama'} for SOAP note generation.")
 
         redacted_transcript = self._redact_pii(transcript)
         vitals_context = f"\nIoT BIOMETRICS: {context.get('vitals', {})}" if context and context.get('vitals') else ""

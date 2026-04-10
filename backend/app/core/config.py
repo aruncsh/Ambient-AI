@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     FHIR_URL: str = "http://localhost:8080"
     
     # AI Providers
-    WHISPER_PROVIDER: str = "local" # mock, local, openai, groq
+    WHISPER_PROVIDER: str = "openai" # mock, local, openai, groq
     WHISPER_MODEL: str = "small" # base, small, medium, large-v3
     MEDIA_PIPE_ENABLED: bool = True
     MEDICAL_NLP_PROVIDER: str = "llm" # mock, llm
