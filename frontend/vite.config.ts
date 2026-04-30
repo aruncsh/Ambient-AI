@@ -5,9 +5,9 @@ export default defineConfig({
   plugins: [react()],
 
   server: {
-    port: 3000,
     host: true,
-    allowedHosts: "all", // ✅ ADD THIS
+    allowedHosts: "all",
+    port: 3000,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8001',
@@ -26,8 +26,10 @@ export default defineConfig({
     },
   },
 
+  // ✅ THIS IS THE REAL FIX
   preview: {
     host: true,
-    allowedHosts: "all", // ✅ IMPORTANT for Render
+    port: 3000,
+    allowedHosts: ["ambient-ai-1.onrender.com"], // 👈 MUST MATCH EXACT DOMAIN
   },
 });
