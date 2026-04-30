@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { 
     Video, PhoneOff, MessageSquare, 
     User, Activity, Shield,
-    Clock, Brain, Info, Share2, Check
+    Clock, Brain, Info, Share2, Check, AlertCircle
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { consultService } from '../services/consultService';
@@ -20,18 +20,25 @@ const Teleconsult = () => {
     const [participantInfo, setParticipantInfo] = useState<any>(null);
     const [appointment, setAppointment] = useState<any>(null);
     const [summary, setSummary] = useState<any>(null);
+    const [validatedToken, setValidatedToken] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [time, setTime] = useState(0);
     const [copied, setCopied] = useState(false);
 
     useEffect(() => {
-        const initializeConsult = async () => {
+        const initializeConsult = async (activeToken?: string) => {
+            if (validatedToken && !activeToken) return; // Already initialized
+
+            const currentToken = activeToken || token;
             try {
-                if (token) {
-                    const data = await consultService.validateToken(token);
+                if (currentToken) {
+                    const data = await consultService.validateToken(currentToken);
                     if (data.consult) {
+                        setValidatedToken(currentToken);
                         setConsult(data.consult);
                         setParticipantInfo(data.info);
+                        
                         const localId = data.consult.additional_info?.appointment_id || data.consult.additional_info?.local_appointment_id;
                         if (localId) {
                             try {
@@ -42,7 +49,7 @@ const Teleconsult = () => {
                         
                         // Initial summary fetch
                         try {
-                            const summaryData = await consultService.getSummary(token);
+                            const summaryData = await consultService.getSummary(currentToken);
                             setSummary(summaryData);
                         } catch (e) {}
 
@@ -51,25 +58,44 @@ const Teleconsult = () => {
                              await consultService.startConsult(data.consult.id, data.info.role, data.info.id);
                         }
                     }
-                } else if (id && id !== 'undefined') {
+                } else if (id && id !== 'undefined' && !validatedToken) {
                     const appt = await api.getAppointment(id);
                     setAppointment(appt);
+                    
+                    // Extract token from teleconsult_link if available
+                    if (appt.teleconsult_link) {
+                        let extractedToken = null;
+                        if (appt.teleconsult_link.includes('/consult/')) {
+                            extractedToken = appt.teleconsult_link.split('/consult/')[1].split('?')[0];
+                        } else if (appt.teleconsult_link.includes('/teleconsult-v2/')) {
+                            extractedToken = appt.teleconsult_link.split('/teleconsult-v2/')[1].split('?')[0];
+                        }
+
+                        if (extractedToken) {
+                            initializeConsult(extractedToken);
+                            return;
+                        }
+                    }
                 }
                 setLoading(false);
-            } catch (err) {
+            } catch (err: any) {
                 console.error("Consult initialization failed", err);
+                setError(err.response?.data?.detail || err.message || "Consult initialization failed");
                 setLoading(false);
             }
         };
 
-        initializeConsult();
+        if (loading || !validatedToken) {
+            initializeConsult();
+        }
         
         // Polling for summary updates (SOAP notes being generated in background)
         let summaryPoller: any;
-        if (token) {
+        const currentToPoll = validatedToken || token;
+        if (currentToPoll) {
              summaryPoller = setInterval(async () => {
                  try {
-                     const summaryData = await consultService.getSummary(token);
+                     const summaryData = await consultService.getSummary(currentToPoll);
                      setSummary(summaryData);
                  } catch (e) {}
              }, 15000); 
@@ -80,41 +106,49 @@ const Teleconsult = () => {
             clearInterval(timer);
             if (summaryPoller) clearInterval(summaryPoller);
         };
-    }, [id, token]);
+    }, [id, token, validatedToken]);
 
-    const getConsultUrl = () => {
-        if (token) {
-            // Priority 1: External microservice direct token link
-            return `https://services-api.a2zhealth.in/consult/${token}`;
-        }
+    const getConsultUrls = () => {
+        // Find both publisher and subscriber URLs if available
+        const info = appointment?.additional_info || {};
+        const publisherToken = info.publisher_token;
+        const subscriberToken = info.subscriber_token;
         
-        // Priority 2: Link returned from microservice during creation
-        const link = appointment?.teleconsult_link || consult?.additional_info?.consult_link;
-        if (link) {
-            // Generalize checks for known providers
-            if (link.includes('opentok') || link.includes('tokbox') || link.includes('jit.si') || link.includes('a2zhealth.in')) {
-                const extId = consult?.additional_info?.external_id || consult?.id;
-                if (extId && !link.includes('/consult/')) return `https://services-api.a2zhealth.in/consult/${extId}`;
-                return link;
-            }
-            if (link.startsWith('/consult/')) {
-                return `https://services-api.a2zhealth.in${link}`;
-            }
-            return link;
-        }
+        // Metadata Overload for shared clinician links
+        const metadata = `&api_end_point=https://services-api.a2zhealth.in/&apiEndPoint=https://services-api.a2zhealth.in/&api_end_version=v1&organization_id=25&organizationId=25&x_name=garuda&lang=en&token=${publisherToken}`;
 
-        // Priority 3: Fallback to ID-based microservice link
-        const consultId = consult?.id || appointment?.additional_info?.external_id;
-        if (consultId) {
-            return `https://services-api.a2zhealth.in/consult/${consultId}`;
-        }
+        const pubUrl = publisherToken ? `https://teleconsult.a2zhealth.in/teleconsult-v2/${publisherToken}?type=publisher${metadata}` : null;
+        const subUrl = subscriberToken ? `https://teleconsult.a2zhealth.in/consult/${subscriberToken}` : null;
 
-        return null;
+        return { pubUrl, subUrl };
     };
 
+    const getConsultUrl = () => {
+        // Only return URL once we have validated the participant's role from the token
+        if (!validatedToken || !participantInfo?.role) return null;
+
+        const userRole = participantInfo.role.toLowerCase();
+        const isDoctor = userRole === "doctor" || userRole === "publisher";
+        
+        // Use v2 for clinicians as explicitly requested; patients remain on /consult/ for asset stability
+        const doctorBaseUrl = "https://teleconsult.a2zhealth.in/teleconsult-v2/";
+        const patientBaseUrl = "https://teleconsult.a2zhealth.in/consult/";
+
+        // Metadata Overload to ensure the V2 dashboard initializer finds its config before the handshake even starts
+        // We provide both snake_case and camelCase to satisfy disparate Angular build targets
+        const metadata = `&api_end_point=https://services-api.a2zhealth.in/&apiEndPoint=https://services-api.a2zhealth.in/&api_end_version=v1&organization_id=25&organizationId=25&x_name=garuda&token=${validatedToken}`;
+
+        if (isDoctor) {
+            return `${doctorBaseUrl}${validatedToken}?type=publisher${metadata}`;
+        } else {
+            return `${patientBaseUrl}${validatedToken}?type=subscriber${metadata}`;
+        }
+    };
     const handleShare = () => {
+        const { subUrl } = getConsultUrls();
         const urlId = consult?.id || appointment?.additional_info?.external_id || id;
-        const shareUrl = `${window.location.origin}/consult/${urlId}`;
+        const shareUrl = subUrl || `${window.location.origin}/consult/${urlId}`;
+        
         navigator.clipboard.writeText(shareUrl);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -139,6 +173,26 @@ const Teleconsult = () => {
             navigate('/scheduling');
         }
     };
+
+    if (error) {
+        return (
+            <div className="flex flex-col items-center justify-center h-[calc(100vh-160px)] space-y-8 bg-rose-50/50 rounded-[3rem] border-2 border-dashed border-rose-200 p-10 text-center">
+                <div className="w-24 h-24 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 mb-4 animate-bounce">
+                    <AlertCircle size={48} />
+                </div>
+                <div className="space-y-4 max-w-lg">
+                    <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter">Uplink Encryption Error</h3>
+                    <p className="text-slate-500 font-bold leading-relaxed">{error}</p>
+                    <button 
+                        onClick={() => window.location.reload()}
+                        className="mt-6 px-10 h-14 bg-slate-900 hover:bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest transition-all shadow-xl shadow-slate-900/10"
+                    >
+                        Retry Clinical Handshake
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     if (loading) return (
         <div className="h-[80vh] flex flex-col items-center justify-center gap-6">
@@ -178,6 +232,12 @@ const Teleconsult = () => {
                 </div>
 
                 <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-4 bg-slate-900 px-6 py-3 rounded-2xl shadow-xl shadow-slate-900/10 border border-slate-800">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
+                            {(participantInfo?.role || 'Identifying...').toUpperCase()} TERMINAL
+                        </span>
+                    </div>
                     <button 
                         onClick={handleShare}
                         className={`h-14 px-6 rounded-2xl border transition-all flex items-center gap-2 font-black text-[10px] uppercase tracking-widest ${copied ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-900 hover:text-slate-900'}`}
@@ -200,7 +260,7 @@ const Teleconsult = () => {
 
             <div className="flex-1 grid grid-cols-12 gap-8 min-h-0">
                 <div className="col-span-12 lg:col-span-8 bg-slate-900 rounded-[3rem] border border-slate-800 shadow-2xl overflow-hidden relative group">
-                    {consultUrl ? (
+                    {consultUrl && participantInfo ? (
                          <iframe 
                             src={consultUrl}
                             className="w-full h-full border-none"

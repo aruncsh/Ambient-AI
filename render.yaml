@@ -23,11 +23,11 @@ services:
 
 
   # Frontend Service (Static Site)
-  - type: web
+  - type: static
     name: ambient-ai-frontend
     env: static
     buildCommand: npm install && npm run build
-    staticPublishPath: ./frontend/dist
+    publishDir: dist
     rootDir: ./frontend
     envVars:
       - key: VITE_API_URL

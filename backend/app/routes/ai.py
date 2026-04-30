@@ -129,26 +129,45 @@ async def voice_to_soap(file: UploadFile = File(...), specialty: Optional[str] =
         
         # 1. Transcribe the audio
         audio_data = await file.read()
-        if not audio_data:
-            raise HTTPException(status_code=400, detail="Empty audio file")
+        file_size = len(audio_data)
+        logger.info(f"Voice-to-SOAP: Received file {file.filename} ({file_size} bytes)")
+        
+        if file_size < 1000:
+            raise HTTPException(status_code=400, detail=f"Audio file too small ({file_size} bytes)")
             
         temp_id = f"ext-{uuid.uuid4().hex[:8]}"
-        transcript_text = await whisper_service.transcribe(audio_data, temp_id)
+        transcript_text = await whisper_service.transcribe(audio_data, temp_id, is_raw_file=True, filename=file.filename)
         
+        if transcript_text is None:
+             logger.error(f"Voice-to-SOAP: Transcription failed (None) for {temp_id}")
+             raise HTTPException(status_code=500, detail="Transcription service failed")
+             
         if not transcript_text.strip():
-             return {"error": "Silence detected. No speech to process."}
+             logger.warning(f"Voice-to-SOAP: Silence detected for {temp_id}")
+             # Return a structured silence response instead of 400 to help frontend
+             return {
+                 "transcript": "",
+                 "soap": {},
+                 "status": "silence_detected"
+             }
 
         # 2. Process to SOAP using the high-fidelity scribe
+        logger.info(f"Voice-to-SOAP: Transcribed {len(transcript_text)} chars. Processing SOAP...")
         soap_results = await medical_nlp_service.process_precise_scribe(transcript_text, specialty=specialty)
+        
+        logger.info(f"VOICE-TO-SOAP DEBUG: SOAP Result Keys={list(soap_results.keys())}")
         
         return {
             "transcript": transcript_text,
-            "soap": soap_results.get("soap", soap_results.get("clinical_info", {})),
+            "soap": soap_results.get("soap", {}),
+            "clean_conversation": soap_results.get("clean_conversation", ""),
+            "billing": soap_results.get("billing", {}),
             "insights": {
                 "symptoms": soap_results.get("extracted_symptoms", []),
                 "diagnoses": soap_results.get("extracted_diagnosis", []),
                 "problem": soap_results.get("identified_problem", "")
-            }
+            },
+            "status": "success"
         }
     except Exception as e:
         logger.error(f"Voice-to-SOAP integration error: {e}")

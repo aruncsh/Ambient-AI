@@ -8,7 +8,7 @@ const RESOURCE_BASE_URL = `${BASE_URL}/api/v1/resource`;
 export const consultService = {
   validateToken: async (token: string) => {
     const response = await axios.get(`${TELE_BASE_URL}/token-validate`, { params: { token } });
-    return response.data;
+    return response.data.data;
   },
 
   getSummary: async (token: string) => {

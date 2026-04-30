@@ -26,33 +26,15 @@ async def get_encounter(encounter_id: str):
         from bson.errors import InvalidId
         
         # Check if ID is a valid ObjectId
-        # Try finding in database first, even for "demo" or "1"
         encounter = None
         try:
-            if encounter_id in ["1", "2", "3"] or encounter_id.startswith("mock-") or encounter_id == "demo":
-                # Check for custom ID match
-                encounter = await Encounter.find_one(Encounter.id == encounter_id)
-            
-            if not encounter:
-                obj_id = PydanticObjectId(encounter_id)
-                encounter = await Encounter.get(obj_id)
+            obj_id = PydanticObjectId(encounter_id)
+            encounter = await Encounter.get(obj_id)
         except (InvalidId, ValueError):
-            logger.warning(f"Invalid ObjectId format: {encounter_id}, attempting mock lookup.")
+            # Fallback for non-ObjectId string IDs (if allowed by model)
+            encounter = await Encounter.find_one(Encounter.id == encounter_id)
             
         if not encounter:
-            # Return a mock encounter record if it's one of our dashboard IDs AND not in DB
-            if encounter_id in ["1", "2", "3"] or encounter_id.startswith("mock-") or encounter_id == "demo":
-                return {
-                    "id": encounter_id,
-                    "patient_id": "Jane Cooper" if encounter_id == "1" else "Cody Fisher",
-                    "clinician_id": "Dr. Smith",
-                    "status": "completed",
-                    "transcript": [
-                        {"speaker": "Doctor", "text": "This is a fallback record. No live transcript found in DB for this ID.", "timestamp": "2024-03-20T10:00:00Z"}
-                    ],
-                    "vitals": {"heart_rate": 78, "blood_pressure": "120/82", "spo2": 97},
-                    "is_mock": True
-                }
             raise HTTPException(status_code=404, detail="Encounter not found")
 
         if not encounter:
@@ -132,18 +114,8 @@ async def create_encounter(data: EncounterCreate):
 
         return encounter
     except Exception as e:
-        import uuid
-        from datetime import datetime
         logger.error(f"Encounter creation failed: {e}")
-        # Fallback to mock encounter if DB is unreachable
-        return {
-            "id": f"mock-{str(uuid.uuid4().hex)[0:8]}",
-            "patient_id": data.patient_id or "MOCK-PATIENT",
-            "clinician_id": data.clinician_id or "MOCK-DOC",
-            "status": "active",
-            "created_at": datetime.utcnow().isoformat(),
-            "is_mock": True
-        }
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/emergency")
 async def create_emergency_encounter():
@@ -303,9 +275,8 @@ async def get_prescription_pdf(encounter_id: str):
         raise HTTPException(status_code=404, detail="Encounter not found")
     
     from app.modules.automation.pdf_service import pdf_service
-    # Mock names if missing
-    clinician_name = "Dr. Ambient" 
-    patient_name = "Patient " + str(encounter.patient_id)
+    clinician_name = encounter.clinician_id or "Medical Provider"
+    patient_name = encounter.patient_name or "Valued Patient"
     
     filename = pdf_service.generate_prescription_pdf(
         encounter_id=str(encounter.id),

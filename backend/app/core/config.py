@@ -8,7 +8,11 @@ class Settings(BaseSettings):
     
     # Security
     SECRET_KEY: str = "y-r_super_secret_key_change_in_prod"
-    ENCRYPTION_KEY: str = "xCaSmOjZGTsd9yF4VhYKE6L1dF9EOCX7u69ugupImY0="
+    ENCRYPTION_KEY: str = "r9xUqe4lisT2RVcGV3YE72oTi_oorwt5vv8Lu7COFt18="
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    ALGORITHM: str = "HS256"
+
+
     
     # Infrastructure
     MONGO_URL: str = "mongodb+srv://ambinetAI:jvGCRs0c0dZZ9tUb@cluster0.sa6kfex.mongodb.net/ambient_ai?appName=Cluster0"
@@ -16,7 +20,7 @@ class Settings(BaseSettings):
     FHIR_URL: str = "http://localhost:8080"
     
     # AI Providers
-    WHISPER_PROVIDER: str = "local" # mock, local, openai, groq
+    WHISPER_PROVIDER: str = "openai" # mock, local, openai, groq
     WHISPER_MODEL: str = "small" # base, small, medium, large-v3
     MEDIA_PIPE_ENABLED: bool = True
     MEDICAL_NLP_PROVIDER: str = "llm" # mock, llm
@@ -35,7 +39,7 @@ class Settings(BaseSettings):
     CURESELECT_API_ENDPOINT: str = "https://services-api.a2zhealth.in/"
     CURESELECT_API_CLIENT_ID: Optional[str] = "televet-v3-staging"
     CURESELECT_API_CLIENT_SECRET: Optional[str] = "83fef8ec35f37968a9b684a5c400a54a"
-    CURESELECT_ENTITY_ID: str = "60a7b5e4c9e4b7001c8e2b5e" # Example fallback
+    CURESELECT_ENTITY_ID: str = "25"
     
     class Config:
         env_file = ".env"

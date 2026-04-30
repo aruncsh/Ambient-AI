@@ -344,19 +344,17 @@ class MedicalNLPService:
             return ""
 
         if not self.client and not self.ollama_url:
-            # Fallback/Mock cleaning logic if no API key
-            # 1. Remove fillers
+            # Basic rule-based cleaning if no LLM provider is configured
+            logger.warning(f"No LLM provider configured. Using basic rule-based cleaning for {speaker}.")
             cleaned = raw_text
             for filler in ["um", "uh", "hmm", "like", "you know"]:
                 cleaned = cleaned.replace(f" {filler} ", " ").replace(f"{filler.capitalize()} ", "").strip()
             
-            # 2. Remove word repetitions like "Okay. Okay. Okay."
-            import re
+            # Remove word repetitions
             cleaned = re.sub(r'(\b\w+\b)(?:[.?!,\s]+\1){2,}', r'\1', cleaned, flags=re.I)
             
             if not cleaned:
                 return ""
-                
             return f"{speaker}: {cleaned}"
 
         # 1. Try OpenAI/Groq Client
@@ -1076,7 +1074,10 @@ class MedicalNLPService:
         Generates a full, professional SOAP note from the transcript using the LLM.
         """
         if not self.client and not self.ollama_url:
+            logger.warning(f"MedicalNLP: No LLM detected (OpenAI/Groq/Ollama missing). Falling back to rule-based extraction for transcript of length {len(transcript)}")
             return await self._rule_based_soap_extraction(str(transcript))
+            
+        logger.info(f"MedicalNLP: Using {'LLM Client' if self.client else 'Ollama'} for SOAP note generation.")
 
         redacted_transcript = self._redact_pii(transcript)
         vitals_context = f"\nIoT BIOMETRICS: {context.get('vitals', {})}" if context and context.get('vitals') else ""
@@ -1960,4 +1961,74 @@ class MedicalNLPService:
         
         return []
 
+    async def extract_structured_prescriptions(self, plan_text: str) -> List[Dict]:
+        """
+        Extracts structured medication data from plan text.
+        """
+        prompt = f"""
+        Extract medications from the following clinical plan.
+        For each medication, identify the name, dosage, route, and frequency.
+        
+        Plan: {plan_text}
+        
+        Return ONLY a JSON list of objects:
+        [{{"medication": "Name", "dosage": "Val", "route": "PO/IV/etc", "frequency": "Daily/BID/etc"}}]
+        """
+        try:
+            if self.client:
+                response = await self.client.chat.completions.create(
+                    model=settings.OPENAI_API_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.0
+                )
+                data = json.loads(response.choices[0].message.content)
+                if isinstance(data, dict):
+                    return next(iter(data.values())) if any(isinstance(v, list) for v in data.values()) else []
+                return data if isinstance(data, list) else []
+            elif self.ollama_url:
+                resp = await self._call_ollama(prompt, json_mode=True)
+                data = json.loads(resp)
+                if isinstance(data, dict):
+                    return next(iter(data.values())) if any(isinstance(v, list) for v in data.values()) else []
+                return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.error(f"Prescription extraction error: {e}")
+        return []
+
+    async def extract_structured_lab_orders(self, plan_text: str) -> List[Dict]:
+        """
+        Extracts structured lab/imaging orders from plan text.
+        """
+        prompt = f"""
+        Extract lab tests, imaging, or scans from the following clinical plan.
+        
+        Plan: {plan_text}
+        
+        Return ONLY a JSON list of objects:
+        [{{"test_name": "Name", "status": "ordered", "priority": "routine/high"}}]
+        """
+        try:
+            if self.client:
+                response = await self.client.chat.completions.create(
+                    model=settings.OPENAI_API_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.0
+                )
+                data = json.loads(response.choices[0].message.content)
+                if isinstance(data, dict):
+                    return next(iter(data.values())) if any(isinstance(v, list) for v in data.values()) else []
+                return data if isinstance(data, list) else []
+            elif self.ollama_url:
+                resp = await self._call_ollama(prompt, json_mode=True)
+                data = json.loads(resp)
+                if isinstance(data, dict):
+                    return next(iter(data.values())) if any(isinstance(v, list) for v in data.values()) else []
+                return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.error(f"Lab order extraction error: {e}")
+        return []
+
 medical_nlp_service = MedicalNLPService()
+

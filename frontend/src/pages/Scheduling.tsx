@@ -21,6 +21,7 @@ interface AppointmentType {
   status: string;
   type?: string;
   reason?: string;
+  additional_info?: any;
 }
 
 const Scheduling = () => {
@@ -244,15 +245,31 @@ const Scheduling = () => {
                       </div>
                     </div>
                     {appt.type === 'Virtual' && appt.status !== 'completed' && (
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/teleconsult/${appt.id || appt._id}`);
-                        }}
-                        className="h-10 px-6 rounded-xl bg-indigo-600 text-white font-black text-[10px] uppercase tracking-widest hover:bg-slate-900 transition-all flex items-center gap-2 shadow-lg shadow-indigo-600/20"
-                      >
-                        <Video size={14} /> Join Call
-                      </button>
+                      <div className="flex flex-col gap-2">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/teleconsult/${appt.id || appt._id}`);
+                          }}
+                          className="px-6 h-10 bg-indigo-600 hover:bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2"
+                        >
+                          <ShieldCheck size={14} /> Join as Doctor
+                        </button>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const subToken = appt.additional_info?.subscriber_token;
+                            if (subToken) {
+                                window.open(`https://teleconsult.a2zhealth.in/consult/${subToken}`, '_blank');
+                            } else {
+                                navigate(`/teleconsult/${appt.id || appt._id}`);
+                            }
+                          }}
+                          className="px-6 h-10 bg-white border-2 border-slate-200 hover:border-indigo-600 text-slate-400 hover:text-indigo-600 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2"
+                        >
+                          <User size={14} /> Join as Patient
+                        </button>
+                      </div>
                     )}
                   </div>
                   <button 

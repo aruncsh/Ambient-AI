@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, History, Calendar, CreditCard, Settings,
-  Brain, Search, Bell, Stethoscope, Menu, X, LogOut, ChevronRight, Video
+  Brain, Search, Bell, Stethoscope, Menu, X, LogOut, ChevronRight, Video, UserCheck
 } from 'lucide-react';
 
 interface ShellProps {
@@ -20,6 +20,7 @@ const Shell: React.FC<ShellProps> = ({ children }) => {
         { icon: History, label: 'Encounter History', path: '/history' },
         { icon: Calendar, label: 'Schedules', path: '/scheduling' },
         { icon: Video, label: 'Tele-Consult', path: '/teleconsultations' },
+        { icon: UserCheck, label: 'Doctor Terminal', path: '/doctor-login' },
         { icon: Settings, label: 'System Config', path: '/settings' },
     ];
 

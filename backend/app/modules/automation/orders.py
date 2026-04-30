@@ -1,3 +1,9 @@
+import logging
+from typing import List, Dict
+from app.modules.ai.medical_nlp import medical_nlp_service
+
+logger = logging.getLogger(__name__)
+
 class OrderAutomation:
     def _get_plan_text(self, plan_input) -> str:
         if isinstance(plan_input, str):
@@ -6,54 +12,62 @@ class OrderAutomation:
             # Flatten dict into a searchable string
             parts = []
             for k, v in plan_input.items():
+                k_title = str(k).replace("_", " ").title()
                 if isinstance(v, list):
-                    parts.append(f"{k}: {', '.join(map(str, v))}")
+                    parts.append(f"{k_title}: {', '.join(map(str, v))}")
+                elif isinstance(v, dict):
+                    sub_parts = [f"{sk}: {sv}" for sk, sv in v.items()]
+                    parts.append(f"{k_title}: {'; '.join(sub_parts)}")
                 else:
-                    parts.append(f"{k}: {v}")
+                    parts.append(f"{k_title}: {v}")
             return "\n".join(parts)
         return str(plan_input)
 
-    async def generate_prescriptions(self, plan_input):
-        """Generates mock prescriptions based on the treatment plan."""
-        prescriptions = []
-        plan_text = self._get_plan_text(plan_input)
-        plan_lower = plan_text.lower()
-        
-        if "pain" in plan_lower or "ibuprofen" in plan_lower or "antiplatelet" in plan_lower:
-            prescriptions.append({"medication": "Ibuprofen", "dosage": "400mg", "route": "PO", "frequency": "Every 6 hours PRN"})
-        
-        if "infec" in plan_lower or "antibiotic" in plan_lower or "statin" in plan_lower:
-            prescriptions.append({"medication": "Amoxicillin", "dosage": "500mg", "route": "PO", "frequency": "Three times daily for 7 days"})
-
-        if not prescriptions:
-            # Default fallback for demonstration
-            prescriptions.append({"medication": "Consultation Follow-up", "dosage": "N/A", "route": "N/A", "frequency": "N/A"})
+    async def generate_prescriptions(self, plan_input) -> List[Dict]:
+        """Generates structured prescriptions based on the treatment plan using AI extraction."""
+        if not plan_input:
+            return []
             
+        plan_text = self._get_plan_text(plan_input)
+        
+        # In production, we use the LLM to Parse the plan text into structured MedicationRequest objects
+        try:
+            prescriptions = await medical_nlp_service.extract_structured_prescriptions(plan_text)
+            if prescriptions:
+                logger.info(f"AI extracted {len(prescriptions)} prescriptions from plan.")
+                return prescriptions
+        except Exception as e:
+            logger.error(f"AI prescription extraction failed: {e}")
+
+        # Fallback to extremely basic parsing if AI fails
+        prescriptions = []
+        if isinstance(plan_input, dict) and "medications" in plan_input:
+            for med_str in plan_input["medications"]:
+                prescriptions.append({"medication": med_str, "dosage": "As directed", "route": "PO", "frequency": "Daily"})
+        
         return prescriptions
 
-    async def generate_lab_orders(self, plan_input):
-        """Generates mock lab orders based on the treatment plan."""
-        orders = []
+    async def generate_lab_orders(self, plan_input) -> List[Dict]:
+        """Generates structured lab orders based on the treatment plan using AI extraction."""
+        if not plan_input:
+            return []
+
         plan_text = self._get_plan_text(plan_input)
-        plan_lower = plan_text.lower()
         
-        if "heart" in plan_lower or "chest" in plan_lower or "cardio" in plan_lower or "ecg" in plan_lower or "angina" in plan_lower:
-            for t in ["Troponin I", "12-Lead ECG", "Echocardiogram"]:
-                orders.append({"test_name": t, "status": "ordered", "priority": "high"})
+        try:
+            orders = await medical_nlp_service.extract_structured_lab_orders(plan_text)
+            if orders:
+                logger.info(f"AI extracted {len(orders)} lab orders from plan.")
+                return orders
+        except Exception as e:
+            logger.error(f"AI lab order extraction failed: {e}")
+
+        # Fallback
+        orders = []
+        if isinstance(plan_input, dict) and "diagnostic_tests" in plan_input:
+            for test_str in plan_input["diagnostic_tests"]:
+                orders.append({"test_name": test_str, "status": "ordered", "priority": "routine"})
         
-        if "blood" in plan_lower or "infection" in plan_lower or "fever" in plan_lower:
-            orders.append({"test_name": "Complete Blood Count (CBC) with Differential", "status": "ordered", "priority": "routine"})
-            orders.append({"test_name": "Basic Metabolic Panel (BMP)", "status": "ordered", "priority": "routine"})
-            
-        if "sugar" in plan_lower or "diabet" in plan_lower:
-            orders.append({"test_name": "Hemoglobin A1c", "status": "ordered", "priority": "routine"})
-            
-        if "imaging" in plan_lower or "x-ray" in plan_lower or "mri" in plan_lower:
-            orders.append({"test_name": "Chest X-Ray (PA and Lateral)", "status": "ordered", "priority": "routine"})
-            
-        if not orders:
-            orders.append({"test_name": "General Wellness Panel", "status": "ordered", "priority": "routine"})
-            
         return orders
 
 order_automation = OrderAutomation()

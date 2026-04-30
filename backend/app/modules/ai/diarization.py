@@ -8,6 +8,8 @@ import huggingface_hub
 try:
     import torch
     import torchaudio
+    if not hasattr(torchaudio, "list_audio_backends"):
+        torchaudio.list_audio_backends = lambda: ["ffmpeg", "sox_io", "soundfile"]
     import webrtcvad
     from speechbrain.inference.speaker import EncoderClassifier
     HAS_LOCAL_DIARIZATION = True

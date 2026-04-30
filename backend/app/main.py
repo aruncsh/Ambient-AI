@@ -1,3 +1,7 @@
+import torchaudio
+if not hasattr(torchaudio, "list_audio_backends"):
+    torchaudio.list_audio_backends = lambda: ["ffmpeg", "sox_io", "soundfile"]
+
 from fastapi import FastAPI, Request, WebSocket, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
@@ -10,11 +14,16 @@ import asyncio
 import json
 import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("backend_debug.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
-file_handler = logging.FileHandler("ws_debug.log", encoding="utf-8")
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(file_handler)
-logger.setLevel(logging.INFO)
+logger.info("Logging initialized for all modules.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,6 +54,15 @@ app.add_middleware(
 async def add_audit_log(request: Request, call_next):
     return await audit_log_middleware(request, call_next)
 
+@app.get("/")
+async def root():
+    return {
+        "message": "Welcome to Ambient AI Scribe API",
+        "version": app.version,
+        "status": "online",
+        "docs": "/docs"
+    }
+
 # Routes
 app.include_router(encounters, prefix="/api/v1/encounters", tags=["Encounters"])
 app.include_router(summary, prefix="/api/v1/summary", tags=["Summaries"])
@@ -59,10 +77,7 @@ app.include_router(consults, prefix="/api/v1/consults", tags=["Consults"])
 app.include_router(teleconsult, prefix="/api/v1/teleconsult", tags=["Teleconsult"])
 app.include_router(resource, prefix="/api/v1/resource", tags=["Resource"])
 
-@app.post("/api/v1/simulate")
-async def simulate_pipeline():
-    from app.modules.ai.fusion import ai_fusion
-    return {"status": "success", "results": await ai_fusion.simulate_full_flow({})}
+# Simulation and test endpoints removed for production.
 
 from app.modules.ai.fusion import ai_fusion
 from app.models.encounter import Encounter
