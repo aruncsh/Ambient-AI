@@ -33,4 +33,4 @@ services:
         fromService:
           type: web
           name: ambient-ai-backend
-          property: host
+          property: url
