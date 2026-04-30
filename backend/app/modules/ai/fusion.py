@@ -47,13 +47,12 @@ class AIFusion:
         # 1. Save Raw Audio to Disk (Only if audio_chunk is provided)
         pcm_data = b""
         if audio_chunk:
-            if not encounter.recording_path:
-                recording_dir = os.path.join(os.getcwd(), "recordings")
-                os.makedirs(recording_dir, exist_ok=True)
-                encounter.recording_path = os.path.join(recording_dir, f"{encounter_id}.webm")
+            recording_dir = os.path.join(os.getcwd(), "recordings")
+            os.makedirs(recording_dir, exist_ok=True)
+            recording_path = os.path.join(recording_dir, f"{encounter_id}.webm")
             
             # Append the raw WebM cluster/chunk perfectly retaining stream continuity (ENCRYPTED)
-            with open(encounter.recording_path, "ab") as f:
+            with open(recording_path, "ab") as f:
                 enc_chunk = encrypt_bytes(audio_chunk)
                 # Write 4 bytes length then the chunk (explicit little-endian)
                 import struct
@@ -261,13 +260,17 @@ class AIFusion:
             except:
                 encounter = None
     
-            if not encounter or not encounter.recording_path:
-                logger.warning(f"Batch process skipped for {encounter_id}: No encounter or recording path.")
-                return None
-    
             logger.info(f"Starting batch transcription for {encounter_id}...")
             
-            encounter_path = encounter.recording_path
+            recording_dir = os.path.join(os.getcwd(), "recordings")
+            encounter_path = os.path.join(recording_dir, f"{encounter_id}.webm")
+            if not os.path.exists(encounter_path):
+                # Try wav
+                encounter_path = os.path.join(recording_dir, f"{encounter_id}.wav")
+            
+            if not os.path.exists(encounter_path):
+                logger.warning(f"Batch process skipped for {encounter_id}: No recording file found.")
+                return None
             
             # 0. Decrypt if file is encrypted (Check if it has our structure)
             # Finalized .wav files are NOT encrypted. Raw .webm chunks ARE encrypted.
@@ -321,7 +324,7 @@ class AIFusion:
                     audio_segment = audio_segment.set_frame_rate(16000).set_channels(1).set_sample_width(2)
                     audio_segment.export(wav_path, format="wav")
                     encounter_path = wav_path
-                    encounter.recording_path = wav_path
+                    # We do NOT save encounter.recording_path to DB as per privacy requirement
                     await encounter.save()
                 except Exception as e:
                     logger.error(f"Failed to convert webm to wav: {e}")
@@ -535,7 +538,12 @@ class AIFusion:
         if not encounter: return None
         
         # Trigger batch transcription if transcript is empty
-        if not encounter.transcript and encounter.recording_path:
+        recording_dir = os.path.join(os.getcwd(), "recordings")
+        potential_path = os.path.join(recording_dir, f"{encounter_id}.webm")
+        if not os.path.exists(potential_path):
+            potential_path = os.path.join(recording_dir, f"{encounter_id}.wav")
+
+        if not encounter.transcript and os.path.exists(potential_path):
             await self.batch_process_encounter(encounter_id)
         
         # Aggregate transcript with speaker labels
@@ -717,7 +725,24 @@ class AIFusion:
         # Add the identified problem specifically
         insights["identified_problem"] = clinical_info.get("identified_problem", "")
         encounter.nlp_insights = insights
+        
+        # CLEAR SENSITIVE DATA: Recording path is already not stored, but we ensure it's null
+        encounter.recording_path = None
+        # CLEAR TRANSCRIPT: As per "save that soap values only" requirement
+        encounter.transcript = [] 
+        
         await encounter.save()
+        
+        # CLEANUP: Delete temporary audio files from disk
+        try:
+            recording_dir = os.path.join(os.getcwd(), "recordings")
+            for ext in [".webm", ".wav", "_decrypted.wav"]:
+                p = os.path.join(recording_dir, f"{encounter_id}{ext}")
+                if os.path.exists(p):
+                    os.remove(p)
+            logger.info(f"Privacy Cleanup: Deleted temporary audio files and cleared transcript for {encounter_id}")
+        except Exception as e:
+            logger.error(f"Cleanup failed for {encounter_id}: {e}")
         
         # Return a dict containing both SOAP note and automation totals to help frontend
         return {
@@ -858,10 +883,10 @@ class AIFusion:
             logger.error(f"Encounter {encounter_id} not found for final batch processing.")
             return None
 
-        # 2. Save Full Audio
+        # 2. Save Full Audio (TEMPORARILY)
         recording_dir = os.path.join(os.getcwd(), "recordings")
         os.makedirs(recording_dir, exist_ok=True)
-        encounter.recording_path = os.path.join(recording_dir, f"{encounter_id}.wav")
+        temp_recording_path = os.path.join(recording_dir, f"{encounter_id}.wav")
         
         # PCM decoding
         from app.modules.capture.audio_utils import decode_to_pcm, append_to_wav
@@ -869,12 +894,13 @@ class AIFusion:
         
         # For batch, we overwrite or create fresh
         import wave
-        with wave.open(encounter.recording_path, "wb") as wav_file:
+        with wave.open(temp_recording_path, "wb") as wav_file:
             wav_file.setnchannels(1)
             wav_file.setsampwidth(2)
             wav_file.setframerate(16000)
             wav_file.writeframes(pcm_data)
         
+        # We do NOT save encounter.recording_path to DB
         await encounter.save()
 
         # 3. Process transcription and diarization
