@@ -77,10 +77,7 @@ app.include_router(consults, prefix="/api/v1/consults", tags=["Consults"])
 app.include_router(teleconsult, prefix="/api/v1/teleconsult", tags=["Teleconsult"])
 app.include_router(resource, prefix="/api/v1/resource", tags=["Resource"])
 
-@app.post("/api/v1/simulate")
-async def simulate_pipeline():
-    from app.modules.ai.fusion import ai_fusion
-    return {"status": "success", "results": await ai_fusion.simulate_full_flow({})}
+# Simulation and test endpoints removed for production.
 
 from app.modules.ai.fusion import ai_fusion
 from app.models.encounter import Encounter

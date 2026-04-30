@@ -16,6 +16,6 @@ class FHIRClient:
                 return response.json()
             except Exception as e:
                 logger.error(f"FHIR Error: {str(e)}")
-                return {"id": "mock-id", "resourceType": resource_type, "status": "fallback"}
+                raise e
 
 fhir_client = FHIRClient()

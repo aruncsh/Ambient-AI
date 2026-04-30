@@ -142,8 +142,6 @@ async def voice_to_soap(file: UploadFile = File(...), specialty: Optional[str] =
              logger.error(f"Voice-to-SOAP: Transcription failed (None) for {temp_id}")
              raise HTTPException(status_code=500, detail="Transcription service failed")
              
-        logger.info(f"VOICE-TO-SOAP DEBUG: Raw Transcript='{transcript_text}'")
-        
         if not transcript_text.strip():
              logger.warning(f"Voice-to-SOAP: Silence detected for {temp_id}")
              # Return a structured silence response instead of 400 to help frontend

@@ -26,18 +26,13 @@ async def get_encounter(encounter_id: str):
         from bson.errors import InvalidId
         
         # Check if ID is a valid ObjectId
-        # Try finding in database first, even for "demo" or "1"
         encounter = None
         try:
-            if encounter_id in ["1", "2", "3"] or encounter_id.startswith("mock-") or encounter_id == "demo":
-                # Check for custom ID match
-                encounter = await Encounter.find_one(Encounter.id == encounter_id)
-            
-            if not encounter:
-                obj_id = PydanticObjectId(encounter_id)
-                encounter = await Encounter.get(obj_id)
+            obj_id = PydanticObjectId(encounter_id)
+            encounter = await Encounter.get(obj_id)
         except (InvalidId, ValueError):
-            logger.warning(f"Invalid ObjectId format: {encounter_id}, attempting mock lookup.")
+            # Fallback for non-ObjectId string IDs (if allowed by model)
+            encounter = await Encounter.find_one(Encounter.id == encounter_id)
             
         if not encounter:
             raise HTTPException(status_code=404, detail="Encounter not found")

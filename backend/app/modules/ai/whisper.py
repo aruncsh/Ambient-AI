@@ -222,10 +222,6 @@ class WhisperService:
                 from typing import cast
                 text = cast(str, await loop.run_in_executor(None, process_audio, model))
                 
-                if tmp_path and os.path.exists(tmp_path):
-                    try: os.unlink(tmp_path)
-                    except: pass
-                
                 # Hallucination filter - relaxed for integration endpoints
                 lower_text = text.lower()
                 hallucinations = ["thank you.", "thanks for watching.", "subscribe.", "beep", "you"]
@@ -238,10 +234,13 @@ class WhisperService:
 
             except Exception as e:
                 logger.error(f"Faster-Whisper local transcription error: {e}.")
+                return None
+            finally:
                 if tmp_path and os.path.exists(tmp_path):
                     try: os.unlink(tmp_path)
                     except: pass
-                return None
+
+        return ""
 
         return ""
 
