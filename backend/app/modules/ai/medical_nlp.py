@@ -159,42 +159,78 @@ OUTPUT STRUCTURE (STRICT JSON)
     "severity": "Severity levels mentioned (e.g., 8/10, mild, severe)",
     "associated_symptoms": ["Symptoms that occur together"],
     "aggravating_factors": ["What makes it worse"],
-    "relieving_factors": ["What makes it better"]
+    "relieving_factors": ["What makes it better"],
+    "menstrual_history": {
+      "menarche_age": "Age at first period",
+      "cycle_regularity": "Regular/Irregular/Unpredictable/Spotting",
+      "flow_amount": "Scanty/Moderate/Heavy/Varying",
+      "last_period_date": "LMP if mentioned",
+      "dysmenorrhea": "Presence and timing of pain relative to cycle",
+      "menopause_status": "Premenopausal/Postmenopausal status"
+    },
+    "diet": {
+      "type": "Veg/Non-veg/Specific diets mentioned",
+      "meals_per_day": "",
+      "water_intake": "",
+      "restrictions": "Any foods avoided"
+    }
   },
 
   "objective": {
     "vitals": {
       "temperature": "Exact value mentioned",
-      "blood_pressure": "Exact value mentioned (e.g. 120/80)",
+      "blood_pressure": {
+        "systolic": "Exact value mentioned",
+        "diastolic": "Exact value mentioned"
+      },
       "heart_rate": "Exact value mentioned",
       "respiratory_rate": "Exact value mentioned",
       "oxygen_saturation": "Exact value mentioned (e.g. 98%)",
       "weight": "Exact value mentioned",
       "height": "",
       "bmi": "",
-      "blood_sugar": "Exact value mentioned (e.g. 140 mg/dL)",
-      "egfr": "Exact value mentioned (mL/min/1.73m²)",
-      "creatinine": "Exact value mentioned (mg/dL)",
-      "bun": "Exact value mentioned (mg/dL)",
+      "blood_sugar": "Exact value mentioned",
+      "hemoglobin": "",
+      "hematocrit": "",
+      "blood_uric_acid": "",
+      "blood_ketone": "",
       "urea": "Exact value mentioned",
+      "creatinine": "Exact value mentioned",
+      "gfr": "Exact value mentioned (mL/min/1.73m²)",
+      "bun": "Exact value mentioned",
       "cystatin_c": "Exact value mentioned",
-      "crcl": "Exact value mentioned (24hr CrCl)",
-      "upcr": "Exact value mentioned (Urine Prot/Cr)"
+      "crcl": "Exact value mentioned",
+      "upcr": "Exact value mentioned"
     },
     "lab_results": {
-      "potassium": "Exact value mentioned",
-      "sodium": "Exact value mentioned",
-      "bicarbonate": "Exact value mentioned",
-      "hba1c": "Exact value mentioned"
+      "potassium": "",
+      "sodium": "",
+      "bicarbonate": "",
+      "hba1c": "",
+      "lipid_profile": {
+        "total_cholesterol": "",
+        "ldl": "",
+        "hdl": "",
+        "triglycerides": ""
+      },
+      "lft": {
+         "alt": "",
+         "ast": "",
+         "alp": "",
+         "bilirubin": ""
+      },
+      "urinalysis": "",
+      "other_labs": []
     },
     "physical_examination": {
       "general_appearance": "Document ALL physical observations mentioned by the doctor",
       "cardiovascular": "Document all auscultation or rhythm findings mentioned",
-      "respiratory": "Document all lung sound findings mentioned (e.g. 'crackles in base')",
-      "abdominal": "",
+      "respiratory": "Document all lung sound findings mentioned",
+      "abdominal": "Document ALL findings like tenderness, masses, or bloating",
+      "pelvic": "Document uterus size, ovarian findings, or discharge characteristics mentioned (NEVER put this in eyes)",
       "neurological": "",
       "musculoskeletal": "",
-      "eyes": ""
+      "eyes": "Document only eye-related findings like redness or pupil reactivity"
     }
   },
 
@@ -202,21 +238,35 @@ OUTPUT STRUCTURE (STRICT JSON)
     "primary_diagnosis": "The specific clinical diagnosis made or suspected",
     "icd10_code": "Matching ICD-10 code",
     "differential_diagnosis": ["All other possibilities mentioned"],
-    "clinical_reasoning": "The EXACT reasoning provided by the doctor in the conversation"
+    "clinical_reasoning": "The EXACT reasoning provided by the doctor in the conversation",
+    "systematic_evaluation": {
+      "general": "Normal/Abnormal status for general system",
+      "respiratory": "",
+      "cardiovascular": "",
+      "gastrointestinal": "",
+      "neurological": "",
+      "musculoskeletal": "",
+      "integumentary": ""
+    },
+    "immunization_status": ["List any vaccines mentioned as taken or due"],
+    "vision_ophthalmology": "Any vision findings or eye exam results",
+    "stroke_protocol": "Any stroke-related findings or scale results"
   },
 
   "plan": {
-    "medications": ["List EVERY medication with EXACT dosage, route, and frequency mentioned. DO NOT OMIT ANY."],
-    "diagnostic_tests": ["Labs, Imaging, or Scans ordered"],
-    "therapies": [],
-    "lifestyle_modifications": ["ALL advice given regarding diet, exercise, or habits"],
-    "precautions": ["ALL warning signs or activity restrictions mentioned"]
+    "medications": ["List EVERY medication with EXACT dosage, route, and frequency mentioned."],
+    "lab_order": ["Specific laboratory tests ordered (e.g. Blood Sugar, Thyroid, Hormones)"],
+    "imaging_order": ["Specific imaging (e.g. Pelvic Ultrasound, X-ray) ordered"],
+    "procedure_cpt": ["Specific medical procedures or CPT codes discussed"],
+    "lifestyle_modifications": ["ALL advice given regarding diet, exercise, stress, or habits"],
+    "precautions": ["ALL warning signs or activity restrictions mentioned"],
+    "next_appointment": "Specific follow-up date or timeframe"
   },
 
   "patient_history": {
-    "past_medical_history": ["ALL prior conditions mentioned by the patient or doctor"],
-    "surgical_history": ["LIST EVERY surgery and its year if mentioned. DO NOT OMIT."],
-    "family_history": ["LIST ALL family medical history mentioned (e.g. 'Father: heart problems at 58')."],
+    "past_medical_history": ["ALL prior conditions mentioned"],
+    "surgical_history": ["LIST EVERY surgery and its year if mentioned."],
+    "family_history": ["LIST ALL family medical history mentioned."],
     "social_history": {
       "smoking": "",
       "alcohol": "",
@@ -228,15 +278,15 @@ OUTPUT STRUCTURE (STRICT JSON)
   },
 
   "follow_up": {
-    "follow_up_timeline": "Specific date or timeframe (e.g., '2 weeks', 'next Tuesday')", 
+    "follow_up_timeline": "Specific date or timeframe", 
     "warning_signs": ["Specific symptoms requiring ER visit mentioned by doctor"],
     "referrals": "Specialty and Doctor Name if mentioned"
   },
 
   "ros": {
-    "general": ["e.g., fatigue, weight loss, fever"],
-    "cardiovascular": ["e.g., chest pain, palpitations, edema"],
-    "respiratory": ["e.g., shortness of breath, cough, wheezing"],
+    "general": [],
+    "cardiovascular": [],
+    "respiratory": [],
     "gastrointestinal": [],
     "neurological": [],
     "musculoskeletal": [],
@@ -249,10 +299,11 @@ OUTPUT STRUCTURE (STRICT JSON)
   },
 
   "extracted_entities": {
-    "symptoms": [],
+    "symptoms": ["List every symptom mentioned"],
     "diagnoses": [{"name": "Name", "icd10": "Code"}],
     "medications": [],
     "tests": [],
+    "physical_findings": ["List all physical findings like acne, hair changes, tenderness, or organ enlargement"],
     "billing_codes": [{"code": "Code", "description": "Desc"}]
   }
 }
@@ -276,6 +327,8 @@ STRICT EXTRACTION RULES (ZERO DATA LOSS)
     - "Oxygen", "Saturation", "SpO2" -> Map to "oxygen_saturation" in vitals.
     - "Temperature", "Fever", "Heat" -> Map to "temperature" in vitals.
 11. VALID JSON ONLY.
+12. GENDER-SPECIFIC HISTORY: Only populate 'menstrual_history' if the patient is identified as female or if the topic is discussed.
+13. EXHAUSTIVE PLAN: Ensure 'lab_order', 'imaging_order', and 'procedure_cpt' are distinct. Medications belong in 'medications'. 
 
 ---------------------------------------
 INPUT:
@@ -685,9 +738,34 @@ class MedicalNLPService:
                 r"(?:temperature|temp)[^\d]*(\d{2,3}(?:\.\d)?)\s*(?:degrees?|°)?\s*(?:fahrenheit|celsius|f\b|c\b)?",
                 r"(?:fever|temperature|temp)\s+(?:is|any)\s+(none|normal|high|yes|no)",
             ],
+            "blood_ketone": [
+                r"(?:ketone|blood ketone)[^\d]*(\d{1,2}(?:\.\d)?)",
+            ],
             "weight": [
                 r"(?:weight|wt)[^\d]*(\d{2,3}(?:\.\d)?)\s*(?:kg|kilograms?|lbs?|pounds?)?",
                 r"(?:weight|wt)\s+(?:is|any|stable)\s+(normal|stable|increasing|decreasing|yes|no|none)",
+            ],
+            "bmi": [
+                r"bmi[^\d]*(\d{1,2}(?:\.\d)?)",
+            ],
+            "hemoglobin": [
+                r"(?:hemoglobin|hb)[^\d]*(\d{1,2}(?:\.\d)?)\s*(?:g/dl)?",
+            ],
+            "hematocrit": [
+                r"(?:hematocrit|hct)[^\d]*(\d{1,2}(?:\.\d)?)\s*%?",
+            ],
+            "blood_uric_acid": [
+                r"(?:uric acid|blood uric acid)[^\d]*(\d{1,2}(?:\.\d)?)",
+            ],
+            "blood_ketone": [
+                r"(?:ketone|blood ketone)[^\d]*(\d{1,2}(?:\.\d)?)",
+            ],
+            "gfr": [
+                r"(?:gfr|gfr)[^\d]*(\d{1,3})",
+            ],
+            "blood_sugar": [
+                r"(?:random blood sugar|blood sugar|glucose|rbs|fbs)[^\d]*(\d{2,4})\s*(?:mg[/.]?dl|mg%|mmol)?",
+                r"(?:sugar|diabetes|glucose)\s+(?:is|levels|any)\s+(normal|high|low|controlled|yes|no)",
             ],
         }
 
@@ -696,7 +774,8 @@ class MedicalNLPService:
             r"(shortness of breath|chest pain|palpitations|oedema|edema|swelling|"
             r"[a-z]+ pain|[a-z]+ ache|cough|fever|headache|dizzy(?:ness)?|nausea|"
             r"fatigue|weakness|breathlessness|wheezing|rash|itching|sore throat|"
-            r"congestion|sneezing|blurred vision|light-?headed|sweating|vomiting)"
+            r"congestion|sneezing|blurred vision|light-?headed|sweating|vomiting|"
+            r"acne|facial hair|hirsutism|weight gain|irregular periods|spotting)"
         )
 
         for line in lines:
@@ -751,9 +830,8 @@ class MedicalNLPService:
                     if m:
                         if vkey == "blood_pressure":
                             systolic = m.group(1)
-                            diastolic = m.group(2) if len(m.groups()) > 1 else None
-                            vitals[vkey] = f"{systolic}/{diastolic}" if diastolic else systolic
-                            if "mm" not in vitals[vkey]: vitals[vkey] += " mmHg"
+                            diastolic = m.group(2) if m.group(2) else ""
+                            vitals[vkey] = {"systolic": systolic, "diastolic": diastolic}
                         else:
                             val = m.group(1)
                             if vkey == "heart_rate":
@@ -768,6 +846,12 @@ class MedicalNLPService:
                                 vitals[vkey] = f"{val} mg/dL"
                             elif vkey == "weight":
                                 vitals[vkey] = f"{val} kg"
+                            elif vkey == "bmi":
+                                vitals[vkey] = val
+                            elif vkey == "hemoglobin":
+                                vitals[vkey] = f"{val} g/dL"
+                            elif vkey == "hematocrit":
+                                vitals[vkey] = f"{val}%"
                         break
 
             # ── 3. Medications (exact drug name matching) ─────────────────────────
@@ -792,13 +876,16 @@ class MedicalNLPService:
                 "HbA1c": ["hba1c", "glycated hemoglobin"],
                 "Lipid Profile": ["lipid profile", "cholesterol panel"],
                 "BNP": ["bnp", "brain natriuretic"],
-                "Kidney Function / Electrolytes": ["kidney function", "renal function", "electrolytes", "creatinine", "egfr"],
+                "Kidney Function / Electrolytes": ["kidney function", "renal function", "electrolytes", "creatinine", "gfr"],
                 "Chest X-ray": ["chest x-ray", "chest xray", "x-ray"],
                 "ECG": ["ecg", "electrocardiogram", "ekg"],
                 "Echocardiogram": ["echocardiogram", "echo"],
                 "CBC": ["cbc", "complete blood count"],
                 "Blood Culture": ["blood culture"],
                 "Urine Analysis": ["urinalysis", "urine analysis"],
+                "LFT": ["lft", "liver function"],
+                "Uric Acid": ["uric acid"],
+                "Ketones": ["ketones", "blood ketone"],
             }
             for test_name, keywords in test_keywords.items():
                 if any(kw in content_lower for kw in keywords):
@@ -1009,7 +1096,9 @@ class MedicalNLPService:
                 "severity": "As noted in transcript",
                 "associated_symptoms": [],
                 "aggravating_factors": list(set(aggravating_factors)),
-                "relieving_factors": []
+                "relieving_factors": [],
+                "menstrual_history": {},
+                "diet": {}
             },
             "patient_history": {
                 "past_medical_history": pmh_conditions,
@@ -1033,12 +1122,25 @@ class MedicalNLPService:
                     "oxygen_saturation": vitals.get("oxygen_saturation", ""),
                     "blood_sugar": vitals.get("blood_sugar", ""),
                     "weight": vitals.get("weight", ""),
+                    "bmi": vitals.get("bmi", ""),
+                    "hemoglobin": vitals.get("hemoglobin", ""),
+                    "hematocrit": vitals.get("hematocrit", ""),
+                    "blood_uric_acid": vitals.get("blood_uric_acid", ""),
+                    "blood_ketone": vitals.get("blood_ketone", ""),
+                    "urea": vitals.get("urea", ""),
+                    "creatinine": vitals.get("creatinine", ""),
+                    "gfr": vitals.get("gfr", ""),
+                    "bun": vitals.get("bun", ""),
+                    "cystatin_c": vitals.get("cystatin_c", ""),
+                    "crcl": vitals.get("crcl", ""),
+                    "upcr": vitals.get("upcr", "")
                 },
                 "physical_examination": {
                     "general_appearance": "Well appearing" if "well" in full_text else "Noted",
                     "cardiovascular": cardio,
                     "respiratory": resp,
-                    "abdominal": "Deferred",
+                    "abdominal": "Lower abdominal tenderness" if "tenderness" in full_text else "Soft, non-tender",
+                    "pelvic": "Enlarged ovaries" if "enlarged ovaries" in full_text else "Normal",
                     "neurological": "Alert and oriented",
                     "musculoskeletal": "Limited range of motion noted" if ("unable to lift" in full_text or "pain" in symptoms_str) else "Normal range of motion"
                 }
@@ -1046,14 +1148,21 @@ class MedicalNLPService:
             "assessment": {
                 "primary_diagnosis": primary_diagnosis,
                 "differential_diagnosis": clean_diagnoses[1:5] if len(clean_diagnoses) > 1 else [],
-                "clinical_reasoning": "Based on evaluated symptoms and clinical findings reported in conversation."
+                "clinical_reasoning": "Based on evaluated symptoms and clinical findings reported in conversation.",
+                "systematic_evaluation": {},
+                "immunization_status": [],
+                "vision_ophthalmology": "",
+                "stroke_protocol": ""
             },
             "plan": {
                 "medications": medications,
-                "diagnostic_tests": diagnostic_tests,
+                "lab_order": diagnostic_tests,
+                "imaging_order": [],
+                "procedure_cpt": [],
                 "therapies": [],
                 "lifestyle_modifications": lifestyle_mods,
-                "precautions": precautions
+                "precautions": precautions,
+                "next_appointment": follow_up_timeline
             },
             "follow_up": {
                 "follow_up_timeline": follow_up_timeline,
@@ -1204,6 +1313,14 @@ class MedicalNLPService:
                     r"(?:weight|wt)[^\d]*(\d{2,3}(?:\.\d)?)\s*(?:kg|kilograms?|lbs?|pounds?)?",
                     r"(?:weight|wt)\s+(?:is|any|stable)\s+(normal|stable|increasing|decreasing|yes|no|none)",
                 ],
+                "hemoglobin": [r"(?:hemoglobin|hb)[^\d]*(\d{1,2}(?:\.\d)?)\s*(?:g/dl)?"],
+                "hematocrit": [r"(?:hematocrit|hct)[^\d]*(\d{1,2}(?:\.\d)?)\s*%?"],
+                "blood_uric_acid": [r"(?:uric acid|blood uric acid)[^\d]*(\d{1,2}(?:\.\d)?)"],
+                "blood_ketone": [r"(?:ketone|blood ketone)[^\d]*(\d{1,2}(?:\.\d)?)"],
+                "gfr": [r"(?:gfr|gfr)[^\d]*(\d{1,3})"],
+                "creatinine": [r"(?:creatinine|cr)[^\d]*(\d{1,2}(?:\.\d)?)"],
+                "urea": [r"(?:urea)[^\d]*(\d{1,3})"],
+                "bun": [r"(?:bun)[^\d]*(\d{1,3})"],
             }
             text_lower = text.lower()
             for vkey, patterns_list in patterns.items():
@@ -1212,9 +1329,8 @@ class MedicalNLPService:
                     if m:
                         if vkey == "blood_pressure":
                             systolic = m.group(1)
-                            diastolic = m.group(2) if len(m.groups()) > 1 else None
-                            vitals[vkey] = f"{systolic}/{diastolic}" if diastolic else systolic
-                            if "mm" not in vitals[vkey]: vitals[vkey] += " mmHg"
+                            diastolic = m.group(2) if m.group(2) else ""
+                            vitals[vkey] = {"systolic": systolic, "diastolic": diastolic}
                         else:
                             val = m.group(1)
                             if vkey == "heart_rate": vitals[vkey] = f"{val} bpm"
@@ -1223,6 +1339,8 @@ class MedicalNLPService:
                             elif vkey == "oxygen_saturation": vitals[vkey] = f"{val}%"
                             elif vkey == "blood_sugar": vitals[vkey] = f"{val} mg/dL"
                             elif vkey == "weight": vitals[vkey] = f"{val} kg"
+                            elif vkey == "gfr": vitals[vkey] = val
+                            elif vkey == "blood_ketone": vitals[vkey] = f"{val} mmol/L"
                         break
             return vitals
 
@@ -1305,15 +1423,55 @@ class MedicalNLPService:
 
             # --- Vitals Patch: fill any empty vitals fields via regex on the raw transcript ---
             objective_data = ensure_dict(raw_data.get("objective"))
+            vitals_template = {
+                "temperature": "", "blood_pressure": {"systolic": "", "diastolic": ""},
+                "heart_rate": "", "respiratory_rate": "", "oxygen_saturation": "",
+                "weight": "", "height": "", "bmi": "", "blood_sugar": "",
+                "hemoglobin": "", "hematocrit": "", "blood_uric_acid": "", "blood_ketone": "",
+                "urea": "", "creatinine": "", "gfr": "", "bun": "", "cystatin_c": "", "crcl": "", "upcr": ""
+            }
             llm_vitals = ensure_dict(objective_data.get("vitals"))
+            # Merge LLM vitals into template to ensure ONLY allowed keys exist
+            final_vitals = vitals_template.copy()
+            for k, v in llm_vitals.items():
+                if v:
+                    if k in final_vitals:
+                        final_vitals[k] = v
+                    elif k == "egfr":
+                        final_vitals["gfr"] = v
+            
             regex_vitals = _extract_vitals_regex(input_text)
             for field, value in regex_vitals.items():
-                if not llm_vitals.get(field):  # Only fill if the LLM left it empty
-                    llm_vitals[field] = value
+                existing = final_vitals.get(field)
+                if not existing or (isinstance(existing, dict) and not any(existing.values())):
+                    final_vitals[field] = value
                     logger.info(f"Vitals patch: filled '{field}' = '{value}' from transcript regex")
-            objective_data["vitals"] = llm_vitals
+            
+            objective_data["vitals"] = final_vitals
             raw_data["objective"] = objective_data
             # ---------------------------------------------------------------------------------
+
+            # --- Plan Mapping Patch: handle key hallucinations ---
+            plan_data = ensure_dict(raw_data.get("plan"))
+            if "diagnostic_tests" in plan_data and "lab_order" not in plan_data:
+                plan_data["lab_order"] = plan_data.pop("diagnostic_tests")
+            raw_data["plan"] = plan_data
+
+            # --- ICD-10 Lookup Patch: find codes for extracted diagnoses ---
+            extracted_diagnoses = ensure_list(raw_data.get("extracted_entities", {}).get("diagnoses", []))
+            for diag in extracted_diagnoses:
+                if isinstance(diag, dict) and not diag.get("icd10"):
+                    matches = icd10_service.lookup(diag.get("name", ""))
+                    if matches:
+                        diag["icd10"] = matches[0]["code"]
+            
+            # Patch primary diagnosis code if missing
+            assessment = ensure_dict(raw_data.get("assessment"))
+            if assessment.get("primary_diagnosis") and not assessment.get("icd10_code"):
+                matches = icd10_service.lookup(assessment.get("primary_diagnosis"))
+                if matches:
+                    assessment["icd10_code"] = matches[0]["code"]
+            raw_data["assessment"] = assessment
 
             data = {
                 "identified_problem": raw_data.get("identified_problem", ""),
@@ -1322,13 +1480,13 @@ class MedicalNLPService:
                     "subjective": ensure_dict(raw_data.get("subjective")),
                     "patient_history": ensure_dict(raw_data.get("patient_history")),
                     "objective": ensure_dict(raw_data.get("objective")),
-                    "assessment": ensure_dict(raw_data.get("assessment")),
+                    "assessment": assessment,
                     "plan": ensure_dict(raw_data.get("plan")),
                     "follow_up": ensure_dict(raw_data.get("follow_up")),
                     "ros": ensure_dict(raw_data.get("ros")),
                     "extracted_diagnosis": [
                         (d["name"] if isinstance(d, dict) else str(d)) 
-                        for d in ensure_list(raw_data.get("extracted_entities", {}).get("diagnoses", []))
+                        for d in extracted_diagnoses
                     ],
                     "extracted_symptoms": [
                         (s["name"] if isinstance(s, dict) else s["value"] if isinstance(s, dict) and "value" in s else str(s))
@@ -1336,7 +1494,10 @@ class MedicalNLPService:
                     ]
                 },
                 "extracted_symptoms": ensure_list(raw_data.get("extracted_entities", {}).get("symptoms", [])),
-                "extracted_diagnosis": ensure_list(raw_data.get("extracted_entities", {}).get("diagnoses", [])),
+                "extracted_diagnosis": [
+                    (d if isinstance(d, dict) else {"name": str(d), "icd10": ""})
+                    for d in extracted_diagnoses
+                ],
                 "extracted_billing_codes": ensure_list(raw_data.get("extracted_entities", {}).get("billing_codes", [])),
                 "referrals": raw_data.get("follow_up", {}).get("referrals", "None") if isinstance(raw_data.get("follow_up"), dict) else "None",
                 "follow_ups": ensure_dict(raw_data.get("follow_up")),

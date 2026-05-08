@@ -18,7 +18,7 @@ SPECIALTY_GUIDELINES = {
     "Infectious Disease": "Focus on travel history, fever patterns, culture results, and antimicrobial sensitivity/resistance.",
     "Internal Medicine": "Focus on complex multi-organ system interactions and chronic condition stability.",
     "Medical Genetics": "Focus on family pedigree, genetic testing results, and syndromic features.",
-    "Nephrology": "Focus on renal markers (eGFR, Creatinine, BUN, UPCR, Cystatin C). Identify active uremic syndromes (AEIOU Matrix): Hyperkalaemia/ECG, Uremic Pericarditis, Uremic Encephalopathy, Overload, and Acidosis. Perform pharmacological audit (Metformin, ACEi/ARB, NSAIDs, SGLT2i, K-Sparing, Diuretics, Vit D, Iron).",
+    "Nephrology": "Focus on renal markers (GFR, Creatinine, BUN, UPCR, Cystatin C). Identify active uremic syndromes (AEIOU Matrix): Hyperkalaemia/ECG, Uremic Pericarditis, Uremic Encephalopathy, Overload, and Acidosis. Perform pharmacological audit (Metformin, ACEi/ARB, NSAIDs, SGLT2i, K-Sparing, Diuretics, Vit D, Iron).",
     "Neurology": "Focus on Cranial Nerves II-XII, motor strength (0-5), sensory deficits, reflexes (DTRs), and gait/coordination.",
     "Neurosurgery": "Focus on GCS score, intracranial pressure (ICP) concerns, and specific neurologic deficits relative to imaging.",
     "Nuclear Medicine": "Focus on tracer uptake, scan interpretations (PET/SPECT), and radioactive safety.",
