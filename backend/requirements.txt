@@ -25,3 +25,4 @@ webrtcvad
 reportlab
 bleak
 pydub
+aiohttp>=3.9.0
